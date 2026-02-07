@@ -1,0 +1,19 @@
+﻿@*Αυτό το razor αφορά την αρχική σελίδα της εφαρμογής.*@
+@page "/"
+
+<PageTitle>Home Page</PageTitle>
+
+<div class="container text-center mt-5">
+    <h1 class="display-4 mb-4">🛒 Tech E-Shop</h1>
+    <p class="lead mb-5">Welcome! Choose how you want to log in:</p>
+
+    <div class="d-grid gap-3 col-6 mx-auto">
+        <NavLink class="btn btn-primary btn-lg" href="/client/login">
+            <i class="bi bi-person"></i> Customer Login                     <!--Κατευθύνει στη σελίδα login πελάτη όταν πατηθεί.-->
+        </NavLink>
+
+        <NavLink class="btn btn-secondary btn-lg" href="/admin/login">
+            <i class="bi bi-shield-lock"></i> Administrator Login           <!--Κατευθύνει στη σελίδα login διαχειριστή.-->
+        </NavLink>
+    </div>
+</div>

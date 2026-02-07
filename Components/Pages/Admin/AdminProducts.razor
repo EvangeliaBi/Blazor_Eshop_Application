@@ -1,0 +1,362 @@
+@*Το Razor Component είναι προσβάσιμο μέσω του URL /admin/products.*@
+@page "/admin/products"     
+@*Η /admin/products είναι η προστατευμένη σελίδα μας (razor component). Στο request που θα φτάσει σε αυτό το endpoint, η UseAuthentication() middleware function ελέγχει για το authentication cookie του χρήστη – Αυτό προκαλεί το @attribute [Authorize].*@
+@*Η σελίδα προστατεύεται από το σύστημα authentication/authorization και επιτρέπεται η πρόσβαση μόνο σε authenticated χρήστες που έχουν ρόλο Admin, καθώς ο έλεγχος γίνεται από το authentication cookie που έχει δημιουργηθεί στο login.*@
+@attribute [Authorize(Policy = "AdminOnly")]  
+@using Microsoft.AspNetCore.Authorization
+@using MyBlazorApp.Data      @*περιέχει το AppDbContext*@
+@using MyBlazorApp.Models       @*περιέχει το Product model*@
+@using Microsoft.EntityFrameworkCore   @*για async queries στη βάση*@
+@inject AppDbContext DbContext     /*Μέσω του dependency injection γίνεται inject το DbContext, για CRUD λειτουργίες στην βάση δεδομένων.*/
+@inject NavigationManager Navigation
+@rendermode InteractiveServer
+
+
+ 
+<div class="d-flex justify-content-between align-items-center mb-4">
+    <h2>Manage Products</h2>
+    @if (!string.IsNullOrEmpty(infoMessage))        // Εμφανίζει ένα πληροφοριακό alert όταν υπάρχει μήνυμα στο infoMessage. Χρήσιμο για feedback στον admin.
+    {
+    <div class="alert alert-info">
+        @infoMessage
+    </div>
+    }
+    <div>
+        <button class="btn btn-success me-2" @onclick="ShowCreateForm">        <!--@onclick="ShowCreateForm" → Blazor event binding: Κάθε φορά που ο χρήστης πατά το κουμπί, καλείται η μέθοδος ShowCreateForm() στο component.-->
+            <i class="bi bi-plus"></i> Add New Product
+        </button>
+        <button class="btn btn-primary" @onclick="GoToOrders">          <!--Κουμπί που μεταφέρει τον admin στη σελίδα /admin/orders.-->
+            <i class="bi bi-cart"></i> View Orders
+        </button>
+    </div>
+</div>
+
+
+
+@if (showForm)     @*Αν η showForm == true → εμφανίζεται η φόρμα δημιουργίας/επεξεργασίας. Αν είναι false → δεν εμφανίζεται τίποτα.*@
+{
+    <div class="card mb-4">
+        <div class="card-body">
+            <h4>@(editingProduct?.Id > 0 ? "Edit product" : "Create New product")</h4>
+            <EditForm Model = "editingProduct" OnValidSubmit="RequestSave">         <!--Blazor component EditForm:Model="editingProduct" → δένει τα inputs στο αντικείμενο editingProduct. Όταν το μοντέλο είναι έγκυρο και ο χρήστης υποβάλει την αλλαγή, καλείται η RequestSave.-->
+                <div class="row">
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label">Name</label>
+                        <InputText @bind-Value="editingProduct!.ProductName" class="form-control" />
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label">Category</label>
+                        <InputSelect @bind-Value="editingProduct!.Category" class="form-select">
+                        <option value="">Select Category</option>
+                        <option value="Laptop">Laptop</option>
+                        <option value="CPU">CPU</option>
+                        <option value="GPU">GPU</option>
+                        <option value="Peripheral">Peripheral</option>
+                        <option value="Batteries">Batteries</option>
+                        </InputSelect>
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label">Price</label>
+                        <InputNumber @bind-Value="editingProduct.ProductPrice" class="form-control" />
+                    </div>
+                     <div class="col-md-6 mb-3">
+                        <label class="form-label">Stock</label>
+                        <InputNumber @bind-Value="editingProduct.ProductStock" class="form-control" />
+                    </div>
+                    <div class="col-md-6 mb-3">
+                        <label class="form-label">Image URL</label>
+                        <InputText @bind-Value="editingProduct.ImageFile" class="form-control" />
+                    </div>
+                </div>
+                <div class="d-flex gap-2">
+                    <button type="submit" class="btn btn-primary">Save</button>
+                    <button type="button" class="btn btn-secondary" @onclick="CancelEdit">Cancel</button>       <!--Αυτό είναι ένα Blazor event binding. Το onclick συνδέει το click event του κουμπιού με την μέθοδο CancelEdit() από το code block.-->
+                </div>
+            </EditForm>
+        </div>
+    </div>
+}
+
+<div class="table-responsive">
+    <table class="table table-striped">
+        <thead>
+            <tr>
+                <th>ID</th>
+                <th>Image</th>
+                <th>Name</th>
+                <th>Price</th>
+                <th>Stock</th>
+                <th>Actions</th>
+            </tr>
+        </thead>
+        <tbody>
+            @foreach(var product in products)      @*Εδώ μέσω της επαναληπτικής δομής για κάθε product που δημιουργείται στην λίστα products, δημιουργείται και μία γραμμή (tr) στον πίνακα.*@
+            {
+                <tr>
+                    <td>@product.Id</td>
+                    <td>
+                        @if (!string.IsNullOrEmpty(product.ImageFile))
+                        {
+                            <img src="@product.ImageFile" alt="@product.ProductName"
+                                style="width: 50px; height: 50px; object-fit: cover;" />
+                        }
+                    </td>
+                    <td>@product.ProductName</td>
+                    <td>$@product.ProductPrice.ToString("F2")</td>
+                    <td>@product.ProductStock</td>
+                    <td>
+                        <!--Εδώ και για τα 2 κουμπιά μέσω του @onclick κάθε κουμπί αντιστοιχίζεται με την αντίστοιχη μέθοδο στο component.-->
+                        <button class="btn btn-sm btn-warning" @onclick="() => EditProduct(product)">Edit</button>      <!--Εδώ περνά ολόκληρο το αντικείμενο product στη μέθοδο κι εκτελείται όταν ο admin πατήσει Edit, έχοντας ως αποτέλεσμα την φόρτωση δεδομένων προϊόντος στη φόρμα και την εμφάνιση φόρμας επεξεργασίας.-->
+                        <button class="btn btn-sm btn-danger" @onclick="() => ConfirmDelete(product.Id)">Delete</button>    <!--Εδώ καλείται η μέθοδος ConfirmDelete, περνώντας μόνο το Id του προιόντος. Η μέθοδος αυτή αναζητά το συγκεκριμένο προιόν στην βάση και επιβεβαιώνει την διαγραφή του ή όχι.-->
+                    </td>
+                </tr>
+            }
+        </tbody>
+    </table>
+</div>
+
+@if (showDeleteConfirm)     // Εδώ αποτελείται το UI για την επιβεβαίωση της διαγραφής ενός προιόντος.
+{
+    <div class="modal fade show d-block"
+         style="background-color: rgba(0,0,0,0.5);">
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+
+                <div class="modal-header">
+                    <h5 class="modal-title text-danger">
+                        Confirm Delete
+                    </h5>
+                </div>
+
+                <div class="modal-body">
+                    <p>
+                        Are you sure you want to delete this product?
+                    </p>
+                </div>
+
+                <div class="modal-footer">
+                    <button class="btn btn-secondary"
+                            @onclick="CancelDelete">        <!--Κουμπί που ακυρώνει την ενέργεια για την διαγραφή ενός προιόντος.-->
+                        Cancel
+                    </button>
+
+                    <button class="btn btn-danger"
+                            @onclick="DeleteConfirmed">       <!--Κουμπί που επιβεβαιώνει την οριστική διαγραφή ενός προιόντος.-->
+                        Yes, Delete
+                    </button>
+                </div>
+
+            </div>
+        </div>
+    </div>
+}
+
+@if (showSaveConfirm)       // Εμφανίζει μήνυμα επιβεβαίωσης πριν την αποθήκευση όταν η showSaveConfirm είναι true.
+{
+    <div class="modal fade show d-block"
+         style="background-color: rgba(0,0,0,0.5);">
+
+        <div class="modal-dialog modal-dialog-centered">
+            <div class="modal-content">
+
+                <div class="modal-header">
+                    <h5 class="modal-title">
+                        Confirm Save
+                    </h5>
+                </div>
+
+                <div class="modal-body">
+                    <p>
+                        Are you sure you want to save this product?
+                    </p>
+                </div>
+                <!--Πατώντας το κουμπί cancel καλείται η μέθοδος CancelSave, για να μην αποθηκευθεί καμία αλλαγή.-->
+                <div class="modal-footer">
+                    <button class="btn btn-secondary"
+                            @onclick="CancelSave">
+                        Cancel
+                    </button>
+                <!--Πατώντας το κουμπί Confirm καλείται η αντίστοιχη μέθοδος, για επιβεβαίωση της αλλαγής.-->
+                    <button class="btn btn-primary"
+                            @onclick="ConfirmSave">
+                        Yes, Save
+                    </button>
+                </div>
+
+            </div>
+        </div>
+    </div>
+}
+
+
+
+@code{
+// Δημιουργείται μια νέα κενή λίστα στη μνήμη (heap). Η λίστα είναι τύπου List<Product> και περιέχει μόνο αντικείμενα τύπου Product. Η λίστα αυτή:λειτουργεί ως state container του component καθώς χρησιμοποιείται από το Razor markup (@foreach) για rendering. Όταν αλλάζει το περιεχόμενο της λίστας products, το Blazor ανιχνεύει αυτή την αλλαγή στο state και επανασχεδιάζει κάνει (re-render) το UI.
+    private List<Product> products = new();     // Δημιουργία λίστας αντικειμένων τύπου Product, περιέχοντας όλα τα προϊόντα που ανακτώνται από τη βάση δεδομένων, τα οποία χρησιμοποιούνται για την προβολή αυτών στο UI.
+    private Product? editingProduct;    // Εδώ δημιουργείται ένα nullable αντικείμενο τύπου Product, το οποίο χρησιμοποιείται για την επεξεργασία του υπάρχοντος προιόντος.
+    private bool showForm = false;      // Ελέγχει αν θα εμφανιστεί ή όχι η φόρμα δημιουργίας / επεξεργασίας προϊόντος στο UI.
+    private bool showDeleteConfirm = false;   // Ελέγχει αν θα εμφανιστεί το μήνυμα επιβεβαίωσης
+    private int productIdToDelete;            // Αποθηκεύει το Id του προϊόντος προς διαγραφή
+    private Product? originalProduct;        // Αντίγραφο του προϊόντος πριν την επεξεργασία, χρησιμοποιείται για σύγκριση αλλαγών.
+    private bool showSaveConfirm = false;     // Flag για εμφάνιση modal επιβεβαίωσης αποθήκευσης.
+    private string infoMessage = string.Empty;      // Πεδίο που χρησιμοποιείται για ενημέρωση μέσω προβολής αντίστοιχων μηνυμάτων στον admin.
+
+
+    protected override async Task OnInitializedAsync()      // Σε αυτό το σημείο η φόρτωση των δεδομένων εκτελείται 1 φορά όταν φορτώνεται το component και αρχικοποιείται για πρώτη φορά, φορτώνοντας όλα τα δεδομένα από την βάση.
+    {
+        await LoadProducts();   // Καλείται ασύγχρονα η μέθοδος LoadProducts, προκειμένου να φορτώσει όλα τα δεδομένα από την βάση πριν εμφανιστεί το UI.
+    }
+
+    private async Task LoadProducts()       // Ασύγχρονη μέθοδος για φόρτωση προιόντων από την βάση καθώς χρησιμοποιεί Entity Framework Core. Στην ουσία επιστρέφει ένα Task (όχι δεδομένα), αλλά χρησιμοποιείται αποκλειστικά για ανάγνωση των δεδομένων.
+    {
+        products = await DbContext.Products.ToListAsync();     // Εδώ εκτελείται SQL SELECT μέσω του EF Core. Ανακτά όλα τα προϊόντα από τον πίνακα Products. Τα δεδομένα αποθηκεύονται στη λίστα products.
+    }
+
+    private void ShowCreateForm()       // Δημιουργία νέου προιόντος κι εμφάνιση φόρμας. Η μέθοδος αυτή καλείται όταν ο admin πατήσει "Add new Product".
+    {
+        // Παρακάτω δημιουργείται ένα νέο editingProduct = new Product() και θέτει originalProduct = null ώστε η φόρμα να λειτουργήσει ως create, θέτοντας την showForm = true για εμφάνιση.
+        editingProduct = new Product();     // Εδώ δημιουργείται ένα νέο αντικείμενο Product και συνδέεται με την φόρμα εισαγωγής.
+        originalProduct = null;         // νέο προϊόν
+        showForm = true;        // Εδώ τίθεται η μεταβλητή showForm σε true και προκαλεί την εμφάνιση της φόρμας στο UI.
+    }
+
+    private void EditProduct(Product product)   // Αυτή η μέθοδος καλείται όταν ο admin πατήσει το κουμπί "Edit", για επεξεργασία του υπάρχοντος προιόντος, και δέχεται ως παράμετρο εισόδου το προιόν που επέλεξε ο admin από την λίστα.
+    {
+        originalProduct = new Product       // Δημιουργεί originalProduct ως αντίγραφο του επιλεγμένου προϊόντος.
+        {
+            Id = product.Id,
+            ProductName = product.ProductName,
+            ProductPrice = product.ProductPrice,
+            ProductStock = product.ProductStock,
+            ImageFile = product.ImageFile,
+            Category = product.Category
+        };
+
+        editingProduct = new Product        // Εδώ στην ουσία δημιουργείται το editingProduct ως νέο αντικείμενο με τα ίδια πεδία, ώστε οι αλλαγές στη φόρμα να μην τροποποιούν άμεσα το αντικείμενο της λίστας.
+        {
+            // Παρακάτω αντιγράφονται όλα τα πεδία του προιόντος, για να μην τροποποιηθεί άμεσα το αντικείμενο της λίστας προτού πατηθεί το save.
+            Id = product.Id,
+            ProductName = product.ProductName,
+            ProductPrice = product.ProductPrice,
+            ProductStock = product.ProductStock,
+            ImageFile = product.ImageFile,
+            Category = product.Category
+        };
+        showForm = true;    // Εμφάνιση φόρμας επεξεργασίας στο UI.
+    }
+
+    private void RequestSave()      // Σε αυτή την μέθοδο καλείται η HasChanges() για να ελέγξει αν υπάρχουν αλλαγές. Αν όχι, θέτει το infoMessage = "No changes detected. Nothing to save."
+    {
+        infoMessage = string.Empty;
+
+    if (!HasChanges())
+    {
+        infoMessage = "No changes detected. Nothing to save.";
+        return;     // τερματισμός εκτέλεσης της μεθόδου.
+    }
+
+        showSaveConfirm = true;     // Αν υπάρχουν αλλαγές, θέτει showSaveConfirm = true και εμφανίζει το μήνυμα επιβεβαίωσης.
+    }
+
+    private async Task ConfirmSave()    // Κλείνει το μήνυμα επιβεβαίωσης (showSaveConfirm = false) και καλείται η μέθοδος SaveProduct() για να εκτελέσει την αποθήκευση.
+    {
+        showSaveConfirm = false;
+        await SaveProduct();
+    }
+
+    private void CancelSave()      // Στην μέθοδο αυτή κλείνει το μήνυμα επιβεβαίωσης χωρίς καμία αποθήκευση, γιατί ακύρωσε τις αλλαγές ο χρήστης κι έτσι δεν περάστηκαν.
+    {
+        showSaveConfirm = false;
+    }
+
+    private async Task SaveProduct()    // Μέθοδος που καλείται από την OnValidSubmit της φόρμας, όταν γίνεται το submit της φόρμας.
+    {
+        if(editingProduct == null) return;      // Εάν δεν υπάρχει προιόν προς επεξεργασία τερματίζεται η μέθοδος.
+
+        Console.WriteLine($"Saving product. Id: {editingProduct.Id}");
+
+        if(editingProduct.Id == 0)      // Σε αυτό το σημείο γίνεται εισαγωγή(INSERT) στην βάση δεδομένων ένα νέο προιόν, όπου εάν το Id ισοδυναμεί με το 0, τότε σημαίνει ότι το προιόν δεν υπάρχει στην βάση και πρέπει να γίνει INSERT.
+        {
+            // Δημιουργία προιόντος
+            Console.WriteLine("Adding new product");
+            DbContext.Products.Add(editingProduct);     // Προσθήκη του προιόντος στην βάση.
+        }
+        else
+        {
+            // Ενημέρωση προιόντος
+            Console.WriteLine("Updating existing product");
+            var existing = await DbContext.Products.FindAsync(editingProduct.Id);      // Αναζητείται το υπάρχον προϊόν στη βάση δεδομένων με βάση το Id.
+            if(existing != null)    // Εδώ γίνεται έλεγχος ότι το προιόν βρέθηκε.
+            {
+                // Παρακάτω γίνεται η κατάληλη ενημέρωση των πεδίων του προιόντος (όνομα προιόντος, τιμή, stock, εικόνα).
+                existing.ProductName = editingProduct.ProductName;
+                existing.ProductPrice = editingProduct.ProductPrice;
+                existing.ProductStock = editingProduct.ProductStock;
+                existing.ImageFile = editingProduct.ImageFile;
+                existing.Category = editingProduct.Category;
+            }
+        }
+
+        await DbContext.SaveChangesAsync();     // Οριστική αποθήκευση αλλαγών στην βάση(INSERT/UPDATE).
+        Console.WriteLine("SaveChanges completed");
+        await LoadProducts();    // Εδώ γίνεται επαναφόρτωση της λίστας προιόντων, εξασφαλίζοντας ότι το UI εμφανίζει τα πιο πρόσφατα δεδομένα.
+        CancelEdit();   // Εδώ γίνεται cancel η φόρμα και κλείνει κι επαναφέρεται το UI στην αρχική κατάσταση.
+    }
+
+    private async Task DeleteProduct(int id)    // Εδώ γίνεται αναζήτηση του προιόντος με βάση το id και διαγράφεται από την βάση δεδομένων, καθώς καλείται όταν ο admin πατήσε το κουμπί delete.
+    {
+        var product = await DbContext.Products.FindAsync(id);   // Εδώ πραγματοποιείται αναζήτηση του προιόντος με βάση το πρωτεύον κλειδί.
+        if(product != null)
+        {
+            DbContext.Products.Remove(product);     // Εδώ διαγράφεται το συγκεκριμένο προιόν.
+            await DbContext.SaveChangesAsync();     // Κι εδώ εκτελείται το SQL DELETE στην βάση δεδομένων.
+            await LoadProducts();       // Ανανέωση της λίστας προιόντων στο UI.
+        }
+    }
+
+    private bool HasChanges()      // Η συγκεκριμένη μέθοδος ελέγχει εάν το αντικείμενο που επεξεργαζόμαστε (editingProduct) περιέχει αλλαγές σε σχέση με το αρχικό snapshot (originalProduct). Η μέθοδος χρησιμοποιείται πριν από αποθήκευση για να αποφευχθούν άσκοπες ενημερώσεις στη βάση.
+    {
+        if (editingProduct == null) return false;      // Εδώ επιστρέφεται false εάν το προιόν υπό επεξεργασία είναι null. Στην ουσία αν δεν υπάρχει αντικείμενο προς επεξεργασία, δεν μπορεί να υπάρχουν αλλαγές, οπότε επιστρέφεται άμεσα false. 
+
+        // Όταν δεν υπάρχει originalProduct τότε το editingProduct είναι το νέο.
+        if (originalProduct == null) return true;      // Εδώ ελέγχεται εάν το originalProduct είναι null. Αν δεν υπάρχει αρχικό αντίγραφο, τότε το editingProduct προέρχεται από δημιουργία νέου προϊόντος (create). Σε αυτή την περίπτωση θεωρούμε ότι υπάρχει αλλαγή που πρέπει να αποθηκευτεί κι έστι επιστρέφεται true για να επιτραπεί το INSERT. Αυτό αποφεύγει την ανάγκη σύγκρισης πεδίων όταν πρόκειται για ένα νέο αντικείμενο.
+
+        return
+        // Παρακάτω η έκφραση επιστρέφει true αν οποιοδήποτε από τα πεδία διαφέρει. Αν κανένα πεδίο δεν διαφέρει, επιστρέφεται false. Αυτό σημαίνει ότι η μέθοδος θεωρεί αλλαγή αν υπάρχει τουλάχιστον ένα τροποποιημένο πεδίο.
+            editingProduct.ProductName != originalProduct.ProductName ||        // Εδώ ελέγχει εάν το product name έχει αλλάξει. Αν τα ονόματα διαφέρουν, η συνολική έκφραση γίνεται true (λόγω OR) και η μέθοδος επιστρέφει true. Η σύγκριση χρησιμοποιεί τον τελεστή != για strings, που στην C# συγκρίνει περιεχόμενο (string equality), όχι αναφορές.
+            editingProduct.ProductPrice != originalProduct.ProductPrice ||       // Εδώ ελέγχει εάν η τιμή product price έχει αλλάξει, δηλαδή αν το ProductPrice είναι decimal ή int, η απευθείας σύγκριση είναι ασφαλής.
+            editingProduct.ProductStock != originalProduct.ProductStock ||      // Εδώ ελέγχει αν το απόθεμα (ProductStock) έχει αλλάξει.
+            editingProduct.ImageFile != originalProduct.ImageFile ||              // Εδώ ελέγχει εάν το πεδίο ImageFile (συνήθως string με URL ή path) έχει αλλάξει.
+            editingProduct.Category != originalProduct.Category;
+    }
+
+    private void ConfirmDelete(int id)      // Μέθοδος επιβεβαίωσης διαγραφής ενός προιόντος από το κατάστημα.
+    {
+        productIdToDelete = id;     // Αποθήκευση του Id ενός συγκεκριμένου προιόντος.
+        showDeleteConfirm = true;   // Εμφάνιση του επιβεβαιωτικού μηνύματος για σίγουρη διαγραφή ή όχι.
+    }
+
+    private void CancelDelete()     // Κάνει cancel την ενέργεια για την διαγραφή ενός προιόντος.
+    {
+        showDeleteConfirm = false;      // Σε αυτό το σημείο δεν γίνεται καμία ενέργεια.
+        productIdToDelete = 0;          // Δεν διαγράφεται κανένα προιόν εν τέλει.
+    }
+
+    private async Task DeleteConfirmed()        // Ασύγχρονη μέθοδος που επιβεβαιώνει την διαγραφή ενός προιόντος.
+    {
+        await DeleteProduct(productIdToDelete);     // Καλείται η μέθοδος (DeleteProduct), για την οριστική διαγραφή ενός προιόντος.
+        showDeleteConfirm = false;
+    }
+
+    private void CancelEdit()      // Ακύρωση επεξεργασίας κλείνοντας την φόρμα και κλείνει και το υπάρχον editting αντικείμενο.
+    {
+        editingProduct = null;      // Εδώ γίνεται εκκαθάριση του προιόντος που επεξεργαζόταν προηγουμένως.
+        showForm = false;       // Εδώ κρύβεται η φόρμα από το UI και ο admin επιστρέφει στην λίστα των προιόντων χωρίς αλλαγές.
+    }
+
+    private void GoToOrders()
+    {
+    Navigation.NavigateTo("/admin/orders");     // Δρομολόγηση του χρήστη στην σελίδα (Orders).
+    }
+
+}

@@ -1,0 +1,145 @@
+@*Το route της σελίδας. Όταν ο χρήστης πλοηγηθεί σε αυτό το URL, το component φορτώνεται.*@
+@page "/client/wishlist"
+@attribute [Authorize(Policy = "ClientOnly")] 
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@using MyBlazorApp.Components.Layout
+@using MyBlazorApp.Models
+@using MyBlazorApp.Services
+@layout ClientLayout
+@*Παρακάτω μέσω του DI εισάγονται οι υπηρεσίες: το service για wishlist, το cart service, τον navigation manager για πλοήγηση και τον provider για την κατάσταση authentication. Αυτές οι υπηρεσίες χρησιμοποιούνται μέσα στις μεθόδους για DB operations, αλλαγή σελίδων και ανάκτηση username. Το AuthenticationStateProvider και το αντικείμενο AuthenticationState, χρησιμοποιούνται για να ανακτηθεί το όνομα και τα claims του χρήστη.*@
+@inject WishlistService MyWishlist
+@inject CartService MyCart
+@inject NavigationManager Navigation
+@inject AuthenticationStateProvider AuthProvider
+@*Ενεργοποιεί το interactive server rendering για Blazor Server ώστε το component να είναι διαδραστικό. Ενεργοποιεί το interactive server rendering για Blazor Server, δηλαδή το component θα είναι διαδραστικό και θα διατηρεί σύνδεση SignalR με τον server για events και UI updates.*@
+@rendermode InteractiveServer       
+
+<h2>My Wishlist</h2>
+
+<div class="mb-3">
+    <button class="btn btn-secondary" @onclick="GoToProducts">Back to Products</button>     <!--Το κουμπί Back to Products καλεί την μέθοδο GoToProducts που κάνει Navigation.NavigateTo("/client/products") για client-side πλοήγηση-->
+</div>
+
+@if (isLoading)     // Εδώ εμφανίζεται μήνυμα φόρτωσης.
+{
+    <p>Loading...</p>
+}
+else if (wishlistItems == null || !wishlistItems.Any())     // Σε αυτό το σημείο εμφανίζεται μήνυμα ότι η λίστα είναι άδεια.
+{
+    <p>Your wishlist is empty.</p>
+}
+else
+{
+    <ul class="list-group">
+        @foreach (var item in wishlistItems)    // Μέσω της foreach διατρέχεται κάθε αντικείμενο (item) της λίστας με τα προιόντα.
+        {
+            <li class="list-group-item d-flex justify-content-between align-items-center">
+                @item.Product.ProductName       @*Εδώ εμφανίζεται το όνομα του προιόντος για κάθε item. Αυτό προυποθέτει ότι το Product navigation property έχει φορτωθεί (μέσω Include στο service).*@
+                <div>       <!--Κουμπί που καλεί ασύγχρονα το AddToCartAsync με το αντικείμενο Product. Το disabled="isProcessing" αποτρέπει πολλαπλά clicks όταν μια ενέργεια είναι σε εξέλιξη.-->
+                    <button class="btn btn-sm btn-success me-2"     
+                            @onclick="() => AddToCartAsync(item.Product)"      
+                            disabled="@isProcessing">
+                        Add to Cart
+                    </button>
+                    <!--Και τα δύο κουμπιά απενεργοποιούνται όταν το isProcessing είναι true, για αποφυγή πολλαπλών clicks. Παρακάτω το κουμπί αυτό καλεί την μέθοδο RemoveAsync με το ProductId για να αφαιρεθεί το item από το wishlist.-->
+                    <button class="btn btn-sm btn-danger"
+                            @onclick="() => RemoveAsync(item.ProductId)"      
+                            disabled="@isProcessing">
+                        Remove
+                    </button>
+                </div>
+            </li>
+        }
+    </ul>
+}
+
+
+@code {
+    private string username = string.Empty;     // Aποθηκεύει το όνομα του τρέχοντος χρήστη/client.
+    private List<WishlistItem>? wishlistItems;      // Λίστα με τα αντικείμενα που επιθυμεί να έχει στην wishlist ο κάθε χρήστης. Πεδίο που θα κρατάει τα στοιχεία του wishlist. Το ? σημαίνει ότι μπορεί να είναι null πριν φορτωθούν τα δεδομένα.
+    private bool isLoading = true;      // Εδώ ελέγχεται το UI της φόρτωσης για την σελίδα. Αρχικοποιείται σε true ώστε πριν το πρώτο load να εμφανιστεί το loading UI.
+    private bool isProcessing = false;      // Εδώ αποτρέπονατι παράλληλες ενέργειες στο UI(διπλό κλικ, πολλαπλά requests), καθώς χρησιμοποιείται για την απενεργοποίηση κουμπιών.
+
+
+    // Η μέθοδος αυτή καλείται όταν το component αρχικοποιείται για 1η φορά.
+    protected override async Task OnInitializedAsync()  
+    {
+        var authState = await AuthProvider.GetAuthenticationStateAsync();      // Σε αυτό το σημείο ανακτάται η κατάσταση authentication για το συγκεκριμένο username. Ανακτά την τρέχουσα κατάσταση authentication από τον AuthenticationStateProvider. Η κλήση επιστρέφει ένα AuthenticationState που περιέχει το ClaimsPrincipal του χρήστη.
+        username = authState.User.Identity?.Name ?? string.Empty;       // Κι εδώ λαμβάνεται το username του χρήστη από το ClaimsPrincipal εάν δεν υπάρχει κενό. Τίθεται ένα κενό string για την αποφυγή NullReferenceException, στην περίπτωση που δεν υπάρχει όνομα.
+        await LoadWishlistAsync();      // Κι εδώ καλείται η LoadWishlistAsync() για να φορτώσει τα στοιχεία του wishlist πριν το πρώτο render, ώστε το UI να εμφανίσει τα δεδομένα.
+    }
+
+    private async Task LoadWishlistAsync()      // Η μέθοδος αυτή φορτώνει wishlistItems από το MyWishlist.GetForUserAsync(username).
+    {
+        isLoading = true;       // Θέτει το isLoading = true για να εμφανιστεί το loading στο UI, ότι δηλαδή βρίσκεται σε κατάσταση φόρτωσης.
+        try
+        {
+            wishlistItems = await MyWishlist.GetForUserAsync(username);     // Καλείται το service MyWishlist.GetForUserAsync για να πάρει τα στοιχεία του χρήστη και να τα αποθηκεύσει στο πεδίο wishlistItems.
+        }
+        catch (Exception ex)
+        {
+            // Παρακάτω σε περίπτωση εξαίρεσης γίνεται logging με Console.Error.WriteLine και θέτει κενή λίστα ώστε το UI να μην σπάσει.
+            Console.Error.WriteLine($"LoadWishlistAsync error: {ex}");
+            wishlistItems = new List<WishlistItem>();
+        }
+        finally
+        {   // Σε αυτό το σημείο θέτει την isLoading = false και καλεί την StateHasChanged(). Στην ουσία εδώ απενεργοποιείται το loading flag και καλεί την StateHasChanged() για να ζητήσει από το framework να γίνει ξανά το render του component με την ενημερωμένη κατάσταση.
+            isLoading = false;
+            StateHasChanged();
+        }
+    }
+
+    private async Task RemoveAsync(int productId)       // Αφαιρεί ένα προϊόν από το wishlist μέσω MyWishlist.RemoveAsync. και ανανεώνει την τοπική λίστα.
+    {
+        if (isProcessing) return;       // Σε αυτό το σημείο ελέγχεται αν ήδη εκτελείται κάποια ενέργεια, η νέα κλήση αγνοείται.
+        isProcessing = true;        // Εδώ σηματοδοτείται ότι ξεκίνησε η επεξεργασία με απώτερο σκοπό να απενεργοποιηθούν τα κουμπιά.
+        try
+        {
+            await MyWishlist.RemoveAsync(productId, username);      // Εδώ καλεί την await MyWishlist.RemoveAsync(productId, username) για να διαγράψει το item από την βάση.
+            // Αμέσως μετά ανανεώνει την τοπική λίστα με νέα κλήση στο service ώστε το UI να αντικατοπτρίζει την τρέχουσα κατάσταση.
+            wishlistItems = await MyWishlist.GetForUserAsync(username);     // Αμέσως μετά κάνει wishlistItems = await MyWishlist.GetForUserAsync(username) για να ανανεώσει το UI με την τρέχουσα κατάσταση.
+        }
+        catch (Exception ex)     // Εντός του catch block καταγράφονται τυχόν σφάλματα χωρίς να πετάει την εξαίρεση προς το UI.
+        {   
+            Console.Error.WriteLine($"RemoveAsync error: {ex}");
+        }
+        finally
+        {
+            isProcessing = false;    // Επαναφέρει το flag επεξεργασίας και ζητάει re-render.
+            StateHasChanged();      // Κι εδώ καλείται η StateHasChanged() στο τέλος για να ανανεωθεί το rendering και το UI.
+        }
+    }
+
+    private async Task AddToCartAsync(Product product)      // Η μέθοδος αυτή προσθέτει προϊόν στο καλάθι και το αφαιρεί από το wishlist.
+    {
+        if (product == null || isProcessing) return;        // Σε αυτό το σημείο γίνεται έλεγχος εγκυρότητας παραμέτρων και αποφυγή παράλληλων ενεργειών.
+        isProcessing = true;        // Εδώ σηματοδοτείται ότι ξεκίνησε η επεξεργασία.
+        try
+        {
+            
+            MyCart.Add(product);    // Σε αυτό το σημείο προσθέτει το προϊόν στο τοπικό/σέρβερ καλάθι μέσω της υπηρεσίας καλαθιού.
+
+            // Αφαίρεση από wishlist ενός συγκεκριμένου προιόντος για έναν συγκεκριμένο πελάτη από την βάση.
+            await MyWishlist.RemoveAsync(product.Id, username);
+
+            // Ανανέωση τοπικής λίστας ώστε το UI να δείξει την αλλαγή αμέσως. Πιο συγκεκριμένα ανανεώνει την wishlistItems με GetForUserAsync ώστε το UI να αντικατοπτρίζει την αλλαγή χωρίς reload.
+            wishlistItems = await MyWishlist.GetForUserAsync(username);
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"AddToCartAsync error: {ex}");        // Εντός του catch block καταγράφονται τυχόν σφάλματα χωρίς να πετάει την εξαίρεση προς το UI.
+        }
+        finally
+        {
+            isProcessing = false;       // Επαναφέρει το flag επεξεργασίας και ζητάει re-render.
+            StateHasChanged();          // Κι εδώ καλείται η StateHasChanged() στο τέλος για να ανανεωθεί το rendering και το UI.
+        }
+    }
+
+    private void GoToProducts()     // Μέσω της μεθόδου αυτής προσφέρεται πλοήγηση στη σελίδα προϊόντων με Navigation.NavigateTo("/client/products").
+    {
+        Navigation.NavigateTo("/client/products");      // Χρησιμοποιείται ο NavigationManager για να μεταβεί στην σελίδα προϊόντων. Η πλοήγηση γίνεται client-side χωρίς πλήρη reload.
+    }
+
+}

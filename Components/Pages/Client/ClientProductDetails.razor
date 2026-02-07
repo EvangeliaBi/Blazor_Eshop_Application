@@ -1,0 +1,178 @@
+@* Παρακάτω με το @page"/client/product/{id:int}", ορίζεται το route της σελίδας με παράμετρο id. Η παράμετρος {id:int} δηλώνει ότι το URL πρέπει να περιέχει ακέραιο αριθμό. Το id χρησιμοποιείται για την ανάκτηση συγκεκριμένου προϊόντος από τη βάση δεδομένων.*@
+@page "/client/product/{id:int}"
+@attribute [Authorize(Policy = "ClientOnly")] 
+@using Microsoft.AspNetCore.Authorization
+@using MyBlazorApp.Components.Layout
+@using MyBlazorApp.Data
+@using MyBlazorApp.Models
+@using Microsoft.EntityFrameworkCore
+@using MyBlazorApp.Services
+@*Παρακάτω εισάγονται types για authentication state (AuthenticationStateProvider) που χρησιμοποιούνται για να βρεθεί το όνομα του χρήστη.*@
+@using Microsoft.AspNetCore.Components.Authorization  
+@layout ClientLayout  
+@implements IDisposable         // Σε αυτό το σημείο δηλώνεται ότι το component υλοποιεί την διεπαφή IDisposable και επομένως το Blazor θα καλεί τη μέθοδο Dispose(), καθώς αυτό είναι απαραίτητο για να αποεγγραφούν event handlers και να αποφευχθούν memory leaks.
+@inject CartService MyCart        // Εδώ εισάγεται το CartService μέσω Dependency Injection. Διαχειρίζεται τα προϊόντα που προστίθενται στο καλάθι αγορών. Το service διατηρείται στη διάρκεια του session του χρήστη. Το component καλεί MyCart.Add(product) για να προσθέσει προϊόν στο καλάθι.
+@inject AppDbContext DbContext      // Εισάγει μέσω DI το DbContext της εφαρμογής ως DbContext για ανάκτηση του προϊόντος από τη βάση.
+@inject NavigationManager Navigation        // Εισάγει τον NavigationManager για client‑side πλοήγηση (π.χ. NavigateTo).
+@rendermode InteractiveServer           // Ορίζει ότι το component τρέχει σε Blazor Server interactive mode και θα διατηρεί σύνδεση SignalR για interactivity.
+
+<PageTitle>Product Details</PageTitle>
+
+<div class="container mt-5">
+    @if (product == null)       // Εδώ ελέγχεται εάν το προιόν βρέθηκε στην βάση δεδομένων, αλλιώς αν το product είναι null σημαίνει ότι το προιόν δεν βρέθηκε.
+    {
+        <div class="alert alert-warning">
+            Product not found.      <!--Εμφανίζει προειδοποιητικό μήνυμα στον χρήστη σε περίπτωση μη ύπαρξης προϊόντος.-->
+        </div>
+    }
+    else        // Αν το product υπάρχει, εμφανίζεται το πλήρες UI με εικόνα, πληροφορίες και κουμπιά.
+    {
+        <div class="row">
+            <!-- Εικόνα προιόντος -->
+            <div class="col-md-6">
+                @if (!string.IsNullOrEmpty(product.ImageFile))      // Έλεγχος εικόνας πριν την εμφάνιση.
+                {
+                    <img src="@product.ImageFile"
+                         class="img-fluid rounded shadow-sm"
+                         style="max-height:400px; object-fit:contain;"
+                         alt="@product.ProductName" />
+                }
+            </div>
+
+            <!-- Πληροφορίες προιόντος -->
+            <div class="col-md-6 d-flex flex-column">
+                <h2>@product.ProductName</h2>
+                <h4 class="text-success mb-3">$@product.ProductPrice.ToString("F2")</h4>
+                <p class="text-muted mb-4">Stock: @product.ProductStock</p>
+
+                <!-- Κουμπιά -->
+                <!--Παρακάτω υπάρχει το κουμπί που καλεί τη μέθοδο AddToCart. Το disabled="isAdding" αποτρέπει πολλαπλές υποβολές ενώ τρέχει η ενέργεια.-->
+                <!--Παρακάτω η χρήση των flags isAdding και isProcessingWishlist αποτρέπουν διπλές υποβολές από το UI. -->
+                <div class="mt-auto d-flex gap-2">
+                <button class="btn btn-success btn-lg"     
+                    @onclick="AddToCart"        
+                    disabled="@isAdding">
+                <i class="bi bi-cart-plus"></i>
+                    @(isAdding ? "Adding..." : "Add to Cart")
+                </button>
+                <button class="btn btn-outline-primary btn-lg" @onclick="ToggleWishlist" disabled="@isProcessingWishlist">      <!-- Κουμπί που καλεί την μέθοδο ToggleWishlist για προσθήκη/αφαίρεση από wishlist. disabled αποτρέπει concurrent operations. Το δεύτερο κουμπί καλεί ToggleWishlist και απενεργοποιείται όταν isProcessingWishlist είναι true. Το κείμενο και το εικονίδιο αλλάζουν ανάλογα με IsInWishlist.-->
+                <span class="heart @(IsInWishlist ? "filled" : "")">&#10084;</span>
+                    @(IsInWishlist ? "Remove from Wishlist" : "Add to Wishlist")
+                </button>
+                <button class="btn btn-secondary btn-lg" @onclick="GoBack">                 <!--Κουμπί που καλεί την μέθοδο GoBack για πλοήγηση πίσω στη λίστα προϊόντων.-->
+                <i class="bi bi-arrow-left"></i> Back to Products
+                </button>
+                </div>
+
+                @if (!string.IsNullOrEmpty(successMessage))
+                {
+                    <div class="alert alert-success mt-3" role="alert">
+                        <i class="bi bi-check-circle"></i> @successMessage
+                    </div>
+                }
+            </div>
+        </div>
+    }
+</div>
+
+
+@code {
+    [Parameter] public int id { get; set; }         // Εδώ πρόκειται για μία παράμετρο που λαμβάνει το id από το URL, του προιόντος, καθώς συνδέεται με το {id:int} στο @page, το οποίο έχει να κάνει με την αναζήτηση του σωστού προϊόντος στη βάση δεδομένων
+    [Inject] public WishlistService MyWishlist { get; set; } = null!;       // Εδώ εισάγεται το WishlistService μέσω Dependency Injection, καθώς το component χρειάζεται για να ελέγχει/τροποποιεί τη wishlist.
+    [Inject] public AuthenticationStateProvider AuthProvider { get; set; } = null!;     // Εδώ εισάγεται ο authentication provider, προκειμένου να ληφθεί το όνομα του συνδεδεμένου χρήστη, καθώς οι ενέργειες wishlist είναι για κάθε χρήστη ξεχωριστά. Εισαγωγή του provider για authentication state ώστε να ανακτηθεί το όνομα του χρήστη.
+
+    private Product? product;       //Μεταβλητή που αποθηκεύει το προϊόν που ανακτάται από τη βάση. Είναι nullable (?) γιατί:μπορεί να μην υπάρχει προϊόν με αυτό το id κι έτσι αποφεύγονται και τα runtime exceptions. Αποτελεί state του component, καθώς κάνει re-render το UI.
+    private string successMessage = string.Empty;       // Αποθήκευση μηνύματος επιβεβαίωσης προς τον χρήστη μέσω της αρχικοποίησης ως κενή συμβολοσειρά.
+    private bool isAdding = false;      // Μέσω του boolean αυτού πεδίου, ελέγχεται εάν βρίσκεται σε εξέλιξη η προσθήκη στο καλάθι (χρησιμοποιείται για να απενεργοποιεί το κουμπί και να αλλάζει το κείμενο).
+    private string username = "";       // Αποθήκευση του ονόματος του συνδεδεμένου χρήστη που προέρχεται από το authentication state.
+    private bool IsInWishlist;      // Το πεδίο αυτό τύπου boolean δείχνει αν το προϊόν είναι ήδη στη wishlist του χρήστη.
+    private bool isProcessingWishlist = false;      // flag για αποφυγή concurrent wishlist operations, αποτρέποντας διπλά κλικ.
+    
+    // Η παρακάτω μέθοδος εκτελείται 1 φορά όταν το component φορτώνεται για πρώτη φορά (πριν το πρώτο render, είναι async ώστε να πραγματοποιούνται ασύγχρονες εργασίες), καθώς επιτρέπεται ασύγχρονη πρόσβαση στην βάση.
+    protected override async Task OnInitializedAsync()
+    {
+        // Εδώ γίνεται αναζήτηση στην βάση δεδομένων με το primary key id χρησιμοποιώντας EF Core FindAsync. Αν δεν βρεθεί εγγραφή, το αποτέλεσμα είναι null και το UI θα εμφανίσει το "Product not found". Εδώ εκτελείται αναζήτηση στη βάση δεδομένων: με βάση το πρωτεύον κλειδί (Id), χρησιμοποιώντας Entity Framework CoreFindAsync:επιστρέφει null αν δεν βρεθεί η εγγραφή, καθώς το αποτέλεσμα αποθηκεύεται στο product προκαλώντας automatic UI re-render.
+        product = await DbContext.Products.FindAsync(id);
+        var authState = await AuthProvider.GetAuthenticationStateAsync();   // Εδώ λαμβάνεται η τρέχουσα κατάσταση authentication ασύγχρονα, καθώς χρειάζεται για να βρεθεί το όνομα του χρήστη. Ανακτά το AuthenticationState ασύγχρονα για να πάρει το ClaimsPrincipal του χρήστη.
+        username = authState.User.Identity?.Name ?? "Unknown";      // Εδώ το όνομα του χρήστη ανακτάται από το ClaimsPrincipal. Εάν δεν βρεθεί κάποιο όνομα χρήστη μπαίνει το (Unknown ως προεπιλεγμένη τιμη).
+        MyWishlist.OnChange += OnWishlistChanged;       // Σε αυτό το σημείο εγγράφεται ο τοπικός handler OnWishlistChanged στο event OnChange του WishlistService κι έτσι το component θα ενημερώνεται αυτόματα όταν το WishlistService κάνει NotifyChange() (π.χ. αν άλλο component τροποποιήσει τη wishlist). Εγγράφει τον τοπικό handler OnWishlistChanged στο event OnChange του WishlistService. Αυτό επιτρέπει στο component να ενημερώνεται αυτόματα όταν το wishlist αλλάξει από αλλού.
+        await RefreshWishlistState();       // Εδώ καλείται η μέθοδος που ελέγχει αν το προϊόν είναι στη wishlist και κάνει StateHasChanged, καθώς αρχικοποιεί το IsInWishlist ώστε το UI να δείχνει το σωστό κουμπί. Στην ουσία η μέθοδος ελέγχει αν το προϊόν είναι στη wishlist και κάνει StateHasChanged ώστε το UI να εμφανίσει σωστά την κατάσταση.
+    }
+
+    // Η παρακάτω μέθοδος εκτελείται όταν ο χρήστης πατήσει το κουμπί "Add to Cart". Είναι async ώστε να μπορεί να περιμένει ασύγχρονες εργασίες.
+    private async Task AddToCart()
+    {
+        // Παρακάτω αναφορικά με το Synchronization context και InvokeAsync, Η χρήση InvokeAsync(StateHasChanged) εξασφαλίζει ότι οι UI updates γίνονται στο σωστό context του Blazor Server, ειδικά όταν οι handlers καλούνται από background threads ή events υπηρεσιών.
+        if (product == null)    // Εδώ αποτρέπονται ενέργειες όταν το προϊόν δεν έχει φορτωθεί, καθώς θέτει μήνυμα σφάλματος και κάνει StateHasChanged ώστε το UI να ενημερωθεί.
+        {   successMessage = "Product not found.";
+            await InvokeAsync(StateHasChanged);     // Εδώ απενεργοποιείται το κουμπί και καλείται η StateHasChanged μέσω InvokeAsync για να εξασφαλίσει ότι η ενημέρωση στο UI γίνεται στο σωστό synchronization context του Blazor.
+            return;
+        }
+        isAdding = true;        // Εδώ τίθεται το flag ώστε το κουμπί να απενεργοποιηθεί και το UI να δείξει κατάσταση "Adding...".
+        await InvokeAsync(StateHasChanged);
+
+        MyCart.Add(product);      // Εδώ καλείται το CartService για να προσθέσει το προϊόν στο καλάθι. Η υλοποίηση του Add βρίσκεται στο Cartservice και διατηρείται η κατάσταση σε όλο το session.
+
+        successMessage = $"{product.ProductName} added to cart!";       // Θέτει το μήνυμα επιτυχίας ότι το προιόν προστέθηκε στο καλάθι και εμφανίζεται αντίστοιχα και στο UI.
+        await InvokeAsync(StateHasChanged);
+        
+        await Task.Delay(3000);     // Εδώ το μήνυμα περιμένει για 3 δευτερόλεπτα και μετά εξαφανίζεται, στην ουσία δημιουργείται καθυστέρηση 3 δευτερολέπτων, χωρίς να μπλοκάρεται το thread (async) κι έτσι το μήνυμα εμφανίζεται προσωρινά εντός αυτού του χρονικού περιθωρίου.
+
+        successMessage = string.Empty;      // Μετά τα 3 δευτερόλεπτα πραγματοποιείται εκκαθάριση του μηνύματος.
+        isAdding = false;       // Επαναφέρει το flag, επιτρέποντας ξανά την αλληλεπίδραση του χρήστη με το κουμπί και το κουμπί ενεργοποιείται ξανά.
+        await InvokeAsync(StateHasChanged);
+    }
+
+    private async Task RefreshWishlistState()   // Η μέθοδος αυτή ελέγχει αν το προϊόν είναι στη wishlist και ενημερώνει κατάλληλα το UI.
+    {
+        if (product == null) return;        // Εδώ γίνεται έλεγχος εάν υπάρχει το προιόν.
+        IsInWishlist = await MyWishlist.IsInWishlistAsync(product.Id, username);        // Εδώ ελέγχεται στο WishlistService αν το προϊόν είναι στη wishlist του χρήστη κι ενημερώνει αντίστοιχα το boolean πεδίο IsInWishlist. Στην ουσία εδώ καλείται το WishlistService για να μάθει αν το προϊόν είναι στη wishlist του χρήστη και αποθηκεύει το αποτέλεσμα στο IsInWishlist.
+        await InvokeAsync(StateHasChanged);     // Ανανέωση του UI με ασφάλεια στο σωστό context.
+    }
+
+    private void OnWishlistChanged()       //  Παρακάτω ο handler που εγγράφηκε στο MyWishlist.OnChange είναι void ώστε να ταιριάζει με Action και καλεί την InvokeAsync(RefreshWishlistState) και αγνοεί το αποτέλεσμα (_ =) — έτσι ώστε το refresh τρέχει ασύγχρονα και με ασφάλεια στο UI context, όπου σε αυτή την περίπτωση αν άλλο μέρος της εφαρμογής αλλάξει τη wishlist, το component θα ενημερωθεί αυτόματα.
+    {
+        _ = InvokeAsync(RefreshWishlistState);
+    }
+
+    private async Task ToggleWishlist()     // Μέθοδος που προσθέτει ή αφαιρεί το προϊόν από τη wishlist ανάλογα με την τρέχουσα κατάσταση.
+    {
+        if (product == null) return;        // Σε αυτό το σημείο με τους 2 ελέγχους διακλάδωσης (if), αποτρέπονται ενέργειες όταν δεν υπάρχει προϊόν ή όταν ήδη τρέχει άλλη wishlist ενέργεια.
+        if (isProcessingWishlist) return;
+
+        isProcessingWishlist = true;      // Απενεργοποιείται το κουμπί ώστε να μην γίνουν παράλληλες κλήσεις.
+        try
+        {
+            if (IsInWishlist)   // Καλείται η WishlistService για να αφαιρέσει ή να προσθέσει ένα προιόν με συγκεκριμένο id και username.
+            {
+                await MyWishlist.RemoveAsync(product.Id, username);        // Αν το προϊόν είναι ήδη στη wishlist, καλείται η RemoveAsync.
+            }
+            else
+            {
+                await MyWishlist.AddAsync(product, username);       // Διαφορετικά (εάν το προιόν δεν είναι στην wishlist), καλείται η AddAsync.
+            }
+
+            await RefreshWishlistState();      //  Μετά την αλλαγή ανανεώνεται το IsInWishlist με RefreshWishlistState ώστε το UI να αντικατοπτρίζει την τρέχουσα κατάσταση.
+        }
+        catch (Exception ex)            // Εντός του catch block καταγράφονται τυχόν σφάλματα στο error stream χωρίς να πετάει την εξαίρεση στο UI.
+        {
+            Console.Error.WriteLine($"ToggleWishlist error: {ex}");
+        }
+        finally
+        {           // Εντός του finally block ενεργοποιείται το κουμπί ξανά κι ανανεώνεται το UI.
+            isProcessingWishlist = false;       
+            await InvokeAsync(StateHasChanged);     
+        }
+    }
+
+    public void Dispose()       // Στην ουσία η μέθοδος αυτή γίνεται μέσω της διεπαφής IDisposable.
+    {
+        MyWishlist.OnChange -= OnWishlistChanged;      // Απεγγράφει τον event handler από το WishlistService για να αποφευχθούν memory leaks και κλήσεις σε μη υπάρχον component.
+    }
+
+    private void GoBack()     // Η μέθοδος αυτή εκτελείται όταν ο χρήστης πατήσει το κουμπί "Back to Products, όπου πλοηγείται πίσω στην λίστα των προιόντων."
+    {
+        Navigation.NavigateTo("/client/products");     // Κι εδώ χρησιμοποιείται το NavigationManager για ανακατεύθυνση του χρήστη στη σελίδα λίστας προϊόντων, που στην ουσία πρόκειται για ένα Client-side navigation (χωρίς refresh).
+    }
+    
+}

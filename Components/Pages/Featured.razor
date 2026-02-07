@@ -1,0 +1,59 @@
+﻿@*Όταν ο χρήστης μπει στο /featured, θα φορτωθεί αυτό το Razor component.*@
+@page "/featured"
+@using MyBlazorApp.Models
+@using MyBlazorApp.Data
+@using Microsoft.EntityFrameworkCore
+@inject AppDbContext DbContext
+@rendermode InteractiveServer
+
+<PageTitle>Featured Products</PageTitle>
+
+<div class="container mt-4">
+    <h1 class="mb-4">Featured Products</h1>
+
+    @if (featuredProducts == null)      // Εδώ πραγματοποιείται ένας έλεγχος εάν τα προιόντα φορτώθηκαν από την βάση. Αν το featuredProducts είναι null, εμφανίζεται το loading για να δείξει ότι τα δεδομένα φορτώνονται.
+    {
+        <div class="spinner-border text-primary" role="status">
+            <span class="visually-hidden">Loading...</span>
+        </div>
+    }
+    else if (!featuredProducts.Any())       // Σε αυτό το σημείο εάν η λίστα featuredProducts είναι κενή, εμφανίζει μήνυμα ότι δεν υπάρχουν προϊόντα προς προβολή.
+    {
+        <p>No featured products yet.</p>
+    }
+    else
+    {
+        <div class="row row-cols-1 row-cols-md-3 g-4">
+            @foreach (var product in featuredProducts)      // Για κάθε προιόν από την λίστα featuredproducts δημιουργούνται οι αντίστοιχες στήλες.
+            {
+                <div class="col">
+                    <div class="card h-100 shadow-sm">
+                        @if (!string.IsNullOrEmpty(product.ImageFile))
+                        {
+                            <div class="ratio ratio-4x3">
+                                <img src="@product.ImageFile" class="card-img-top" alt="@product.ProductName" style="object-fit:cover;">
+                            </div>
+                        }
+                        <div class="card-body">
+                            <h5 class="card-title">@product.ProductName</h5>        <!--όνομα του προιόντος-->
+                            <p class="card-text">$@product.ProductPrice.ToString("F2")</p>      <!--τιμή του προιόντος-->
+                        </div>
+                    </div>
+                </div>
+            }
+        </div>
+    }
+</div>
+
+@code {
+    private List<Product> featuredProducts = new();     // Δημιουργία κι αρχικοποίηση της λίστας (featuredProducts), καθώς αρχικοποιείται με τον τελεστή new αποτρέποντας το NullReferenceException.
+
+    protected override async Task OnInitializedAsync()      // Η μέθοδος αυτή εκτελείται όταν φορτώνεται το συγκεκριμένο component για πρώτη φορά.
+    {
+        // Παρακάτω φορτώνονται τα 6 τελευταία προϊόντα από τη βάση (Take(6)) με OrderByDescending(p => p.Id) για την λήψη των πιο πρόσφατων προιόντων.
+        featuredProducts = await DbContext.Products
+            .OrderByDescending(p => p.Id) 
+            .Take(6)
+            .ToListAsync();
+    }
+}

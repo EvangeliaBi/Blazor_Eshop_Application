@@ -1,0 +1,16 @@
+@*Εδώ δηλώνεται το route της σελίδας. Το Blazor θα φορτώσει αυτό το component όταν ο browser ζητήσει το URI /client/order-success.*@
+@page "/client/order-success"
+@using MyBlazorApp.Components.Layout
+@attribute [Authorize(Policy = "ClientOnly")] 
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+@layout ClientLayout
+
+<h2>✅ Order Completed</h2>
+<p>Thank you for your purchase!</p>     <!--Μήνυμα επιβεβαίωσης για επιτυχή πληρωμή.-->
+
+ <!--Σε αυτό το σημείο δημιουργείται ένας σύνδεσμος πλοήγησης, όπου ο customer δρομολογείται στην σελίδα με τα προιόντα για συνέχιση αγορών.-->
+<NavLink href="/client/products" class="btn btn-primary">    
+    Continue Shopping
+</NavLink>
+

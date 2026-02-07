@@ -1,0 +1,115 @@
+@*Το AdminLogin.razor συλλέγει τα username/password αλλά να δεν πραγματοποιεί το login και μόλις τα συλλέξει κάνει redirect σε ένα API endpoint (πχ /auth/login). Στο endpoint αυτό θα γίνεται η ταυτοποίηση των credentials και η εγγραφή του Cookie, ενώ το endpoint θα κάνει redirect στο /admin/products.*@
+@page "/admin/login"    
+@using MyBlazorApp.Services          @*Σε αυτό το σημείο γίνεται import το MyBlazorApp.Services, όπου μέσω αυτού αναφερόμαστε στα Services που έχουμε δημιουργήσει στο φάκελο Services, όπως για παράδειγμα το AuthService.*@
+
+@inject AuthService AuthService     /* Με αυτό το directive λέμε στο ASP.NET να δημιουργήσει ένα στιγμιότυπο της κλάσης AuthService ως property στη wrapped κλάση AdminLogin. Στο παρασκήνιο δημιουργεί το εξής property: public AuthService AuthService { get; set; }, καθώς η δημιουργία αυτού του property στο παρασκήνιο γίνεται με επιτυχία, διότι έχει γίνει register στο DI container το custom service AuthService στα services στο Program.cs. Μπορούμε έτσι πλέον να καλέσουμε την ValidateAdmin() του property object AuthService οπουδήποτε μέσα σε αυτό το component. Ξεκινώντας από το Routes.razor βλέπει αυτόματα την κατεύθυνση δρομολόγησης της σελίδας λόγω του directive(@page /admin/login). Λόγω του ASP.NET παρέχεται αυτόματα το instance. */
+@inject NavigationManager Navigation    /* Μέσω του dependency injection αρχικοποιούνται τα στιγμιότυπα των AuthService και NavigationManager, όπου κι εδώ δημιουργείται property στην wrapped class, όμως η διαφορά είναι ότι το NavigationManager είναι ένα built-in service και για αυτό δεν το ορίσαμε εμείς στο φάκελο Services και δεν το κάναμε register στο Program.cs. Αυτό το property object μπορούμε να το χρησιμοποιήσουμε για να κάνουμε navigate μεταξύ σελιδών/components με διάφορες μεθόδους και properties (NavigateTo(), Uri). */
+@rendermode InteractiveServer       /* Εδώ το γίνεται render και πραγματοποιείται αποστολή στον browser του χρήστη, όπου ο χρήστης βλέπει την φόρμα και μπορεί να διαδράσει με την σελίδα (την φόρμα). Για real-time σύνδεση σε κάποιον χρήστη και updates βάσει της διάδρασης του χρήστη (με αυτό το mode μπορούμε να χρησιμοποιήσουμε listeners όπως το @onclick και να λειτουργήσουμε με διασύνδεση στοιχείων της φόρμας με το @bind-Value. */
+
+
+<PageTitle>Admin Login</PageTitle>
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="com-md-4">
+            <div class="card">
+                <div class="card-body">
+                    <h3 class="card-title text-center mb-4">Admin Login</h3>
+                    @if (!string.IsNullOrEmpty(errorMessage))
+                    {
+                        <div class="alert alert-danger">@errorMessage</div>
+                    }
+                    <EditForm Model="loginModel" OnValidSubmit="HandleLogin">      <!--Το EditForm είναι ένα built-in component της Blazor στο οποίο μπορούμε να ορίσουμε το Model attribute που κάνει bind την φόρμα με το loginModel object και το OnValidSubmit attribute με το οποίο ορίζουμε τη μέθοδο(method handler) που θα κληθεί όταν η φόρμα γίνει επιτυχημένα submitted. Αυτομάτως διαχειρίζεται το submission της φόρμας χωρίς να κάνει reload της σελίδας. Το @bind-Value πραγματοποιεί 2-way binding (όταν ο χρήστης πληκτρολογεί κάτι στο πεδίο το <InputText> εντοπίζει την αλλαγή και το Username/Password property του αντικειμένου loginModel παίρνουν τις τιμές αυτές και όταν τρέξει η HandleLogin έχει πρόσβαση σε αυτά τα properties.-->
+                        <div class="mb-3">
+                            <label class="form-label">Username</label>
+                            <InputText @bind-Value="loginModel.Username" class="form-control"/>     <!--ενεργοποιεί το OnValidSubmit του EditForm.-->
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Password</label>
+                            <InputText type="password" @bind-Value="loginModel.Password" class="form-control" />
+                        </div>
+                        <button type="submit" class="btn btn-primary w-100">Login</button>
+                    </EditForm>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+
+@code{
+    // Σε αυτό το σημείο εντός του directive (@code), πραγματοποιείται αρχικοποίηση του razorcomponent (adminlogin.razor), δημιουργώντας ένα στιγμιότυπο αυτής της κλάσης, καθώς ο κώδικας που βρίσκεται μέσα στο (@code), γίνεται wrapped στην κλάση με όνομα (AdminLogin), η οποία κληρονομεί από την ComponentBase Class.
+    // Πρώτα εκτελείται αυτός εδώ ο κώδιακς που βρίσκεται μέσα στο (@code), καθώς πρώτα εκτελούνται κι αρχικοποιούνται τα παρακάτω πεδία και οι παρακάτω ιδιότητες, όπως είναι το loginModel και το errorMessage.
+    // Τα loginModel και errorMessage αποτελούν το state του component.
+    private LoginModel loginModel = new LoginModel();   // Αντικείμενο που κρατάει τα credentials που εισάγει ο χρήστης.
+    private string errorMessage = string.Empty;     // Το errorMessage χρησιμοποιείται για να εμφανίσει τα μηνύματα σφάλματος.
+
+    
+    // Οι ενέργειες που κάνει ο χρήστης στην εφαρμογή πυροδοτεί κάποια events εκτελώντας τις μεθόδους της wrapped class(AdminLogin), προγραμματίζοντας
+    // τις κατάλληλες αντιδράσεις για αυτά τα events, όπως είναι η event handler μέθοδος (HandleLogin).  
+    // Το component γίνεται re-render καθώς το UI γίνεται update αυτόματα όταν αλλάζει η κατάσταση(state) με κάποια αλλαγή. Οι αλλαγές στο browser του χρήστη αφορούν μόνο τα σημεία του UI που άλλαξαν, καθώς ο server στέλνει μόνο αυτά τα κομμάτια.
+    private void HandleLogin()
+    {
+        // Από την στιγμή που θα χρησιμοποιήσουμε cookies μπαίνει σε σχόλια όλος ο κώδικας που αφορούσε το login, αφού το login του χρήστη δεν θα πραγματοποιείται στην σελίδα AdminLogin.razor.
+        @*var admin = await AuthService.ValidateAdmin(loginModel.Username, loginModel.Password);*@
+
+       @*if (admin != null)
+        {
+            Navigation.NavigateTo("/admin/products");
+        }
+        else
+        {
+            errorMessage = "Ivalid Username or Password";
+        }*@
+
+        // Παρακάτω γίνεται η συλλογή των credentials(username, password), τα οποία εισήγαγε ο χρήστης και γίνεται η προώθηση αυτών μαζί με το request του χρήστη στο (/admin/auth endpoint).
+        @* var url = 
+        $"/auth/login?username={loginModel.Username}&password={loginModel.Password}";
+
+        Navigation.NavigateTo(url, forceLoad: true); *@
+        
+
+        // Εντός της μεθόδου HandleLogin(), ελέγχεται εάν τα πεδία είναι κενά ή έχουν κενά διαστήματα , όπου σε αυτή την περίπτωση
+        // εμφανίζεται το αντίστοιχο μήνυμα στον χρήστη για την συμπλήρωση όλων των απαραίτητων πεδίων, δηλαδή του loginModel.Username / loginModel.Password – τι πληκτρολόγησε ο χρήστης (τα properties αυτά γίνονται update αυτόματα όταν ο χρήστης πληκτρολογεί κάτι στα αντίστοιχα πεδία της φόρμας που χρησιμοποιήσαμε το @bind-value directive.
+        if (string.IsNullOrWhiteSpace(loginModel.Username) || string.IsNullOrWhiteSpace(loginModel.Password))
+        {
+            errorMessage = "Please enter your Username and Password.";
+            return;     // Δεν γίνεται redirect εδώ, τερματίζεται η μέθοδος.
+        }
+
+        // Αν τα πεδία είναι συμπληρωμένα, γίνεται redirect στο backend endpoint /auth/login, που θα ελέγξει τα credentials, 
+        // καθώς χρησιμοποιείται Uri.EscapeDataString για την αποφυγή προβλημάτων αν το username/password περιέχει ειδικούς χαρακτήρες.
+        var url = $"/auth/login?username={Uri.EscapeDataString(loginModel.Username)}&password={Uri.EscapeDataString(loginModel.Password)}";
+        Navigation.NavigateTo(url, forceLoad: true);
+    }
+
+
+    // Αυτή η μέθοδος (OnInitialized) χρησιμοποιείται για αρχικοποίηση δεδομένων πριν το component εμφανιστεί στο UI, καθώς διαβάζει το query string όταν η σελίδα φορτώνει και βλέπει αν υπάρχει η παράμετρος error.
+    // Στην ουσία μέσω αυτής της μεθόδου ο χρήστης βλέπει το μήνυμα σφάλματος μόνο αν το backend έχει επιστρέψει ότι το login απέτυχε.
+    protected override void OnInitialized()
+    {
+        // Έλεγχος αν έχουμε query string από backend (λάθος credentials), καθώς παίρνει το τρέχον URL της σελίδας μέσω του NavigationManager.Uri.
+        // Το μετατρέπει σε Uri αντικείμενο με τη μέθοδο ToAbsoluteUri().
+        var uri = Navigation.ToAbsoluteUri(Navigation.Uri);
+        // Το uri.Query περιέχει το μέρος του URL μετά το ?, δηλαδή το (?error=invalid), καθώς μέσω της μεθόδου ParseQuery, καθώς μέσω της 
+        // μεθόδου (ParseQuery) μετατρέπεται σε ένα dictionary-like αντικείμενο: (error == "invalid"), επιτρέποντας την εύκολη αναζήτηση συγκεκριμένων παραμέτρων.
+        if (Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(uri.Query)
+            .TryGetValue("error", out var error))   // Σε υατό το σημείο ελέγχεται εάν υπάρχει η παράμετρος error στο query string και στην περίπτωση που υπάρχει η τιμή της αποθηκεύεται στη μεταβλητή error επιστρέφοντας true στην περίπτωση που βρεθεί η συγκεκριμένη παράμετρος.
+        {
+            if (error == "invalid")  // Εάν η τιμή του error είναι invalid, αυτό σημαίνει ότι τα credentials είναι λάθος.
+            {
+                errorMessage = "Incorrect Username or Password. Please try again.";     // Ενημέρωση το πεδίο errorMessage, εμφανίζοντας ένα κόκκινο μήνυμα σφάλματος στον χρήστη.
+            }
+        }
+    }
+
+
+    // Παρακάτω δημιουργείται μια δημόσια κλάση (public class) με όνομα LoginModel. Το αντικείμενο αυτής της κλάσης χρησιμοποιείται ως model για τη φόρμα login στο Blazor. Είναι απλό DTO (Data Transfer Object) που κρατά δεδομένα Username και Password.
+    public class LoginModel
+    {
+       // Παρακάτω τα loginModel.Username / loginModel.Password αναφέρονται στο τι πληκτρολόγησε ο χρήστης (τα properties αυτά γίνονται update αυτόματα όταν ο χρήστης πληκτρολογεί κάτι στα αντίστοιχα πεδία της φόρμας που χρησιμοποιήσαμε το @bind-value directive.
+        public string Username {get; set;} = string.Empty;     // Αρχικοποιείται το property σε κενό string, ώστε να μην είναι null όταν φορτώνεται η φόρμα. Στο Blazor, αυτό το property συνδέεται με το input πεδίο της φόρμας (@bind-Value="loginModel.Username").
+        public string Password {get; set;} = string.Empty;     // Το Password επίσης αρχικοποιείται σε κενό string για να μην είναι null, καθώς συνδέεται με το πεδίο password στο UI μέσω Blazor @bind-Value.
+    }
+
+}

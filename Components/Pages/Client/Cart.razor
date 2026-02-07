@@ -1,0 +1,82 @@
+@* Το @page "/client/cart" είναι το URL μέσω του οποίου είναι προσβάσιμη η σελίδα καλαθιού.*@
+@page "/client/cart"
+@attribute [Authorize(Policy = "ClientOnly")]
+@using MyBlazorApp.Components.Layout
+@using MyBlazorApp.Models
+@using MyBlazorApp.Services
+@layout ClientLayout
+@inject CartService MyCart      // Εδώ εισάγεται το CartService μέσω του Dependency Injection στο component και το εκθέτει ως property MyCart. Το service παρέχει πρόσβαση στη συλλογή Items, μεθόδους Add/Remove και υπολογισμό Total.
+@inject NavigationManager Navigation
+@rendermode InteractiveServer
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+
+<PageTitle>Shopping Cart</PageTitle>
+
+<div class="container mt-5">
+    <h2>My Cart</h2>
+
+    @if (!MyCart.Items.Any())       // Εδώ ελέγχεται αν η συλλογή Items του MyCart είναι κενή. Αν είναι κενή, εκτελείται το πρώτο branch (μήνυμα "Your cart is empty." και κουμπί συνέχισης αγορών). Η έκφραση Any() είναι LINQ extension που επιστρέφει true αν υπάρχει τουλάχιστον ένα στοιχείο, καθώς εδώ χρησιμοποιείται για conditional rendering.
+    {
+        <div class="alert alert-info mt-3">
+            Your cart is empty.         <!--Μήνυμα στον χρήστη όταν το καλάθι είναι άδειο.-->
+        </div>
+        <button class="btn btn-primary mt-3" @onclick="GoToProducts">Continue Shopping</button>     <!--Κουμπί που καλεί τη μέθοδο GoToProducts όταν ο χρήστης το πατήσει, για να επιστρέψει στη λίστα προϊόντων.-->
+    }
+    else
+    {
+        <table class="table table-striped mt-3">
+            <thead>
+                <tr>
+                    <th>Product</th>
+                    <th>Price</th>
+                    <th>Quantity</th>
+                    <th>Actions</th>
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var item in MyCart.Items)     @*Επαναλαμβάνει κάθε CartItem στη συλλογή MyCart.Items και δημιουργεί μια γραμμή πίνακα για κάθε προϊόν. Το foreach είναι ο τρόπος να αποδοθούν δυναμικά τα στοιχεία στο UI.*@
+                {
+                    <tr>
+                        <!--Παρακάτω εμφανίζονται το όνομα, η τιμή και η ποσότητα του προιόντος.-->
+                        <td>@item.Product.ProductName</td>        
+                        <td>$@item.Product.ProductPrice.ToString("F2")</td>  
+                        <td>@item.Quantity</td>
+                        <td>
+                            <button class="btn btn-danger btn-sm" @onclick="() => RemoveFromCart(item)">    <!--Εδώ στο κκουμπί καλείται η ανώνυμη έκφραση () => RemoveFromCart(item) ώστε να περάσει το τρέχον item στη μέθοδο RemoveFromCart. Η χρήση lambda εδώ αποφεύγει προβλήματα με binding του item μέσα σε loop.-->
+                                Remove
+                            </button>
+                        </td>
+                    </tr>
+                }
+            </tbody>
+        </table>
+
+        <h4>Total: $@MyCart.Total.ToString("F2")</h4>     <!--Εμφανίζει το συνολικό ποσό του καλαθιού. Το Total υπολογίζεται από το CartService (άθροισμα: τιμή × ποσότητα) για όλα τα προϊόντα).-->
+
+        <div class="mt-3 d-flex gap-2">
+            <button class="btn btn-secondary" @onclick="GoToProducts">Continue Shopping</button>       <!--Κουμπί για επιστροφή στη λίστα προϊόντων.-->
+            <button class="btn btn-success" @onclick="Checkout">Proceed to Checkout</button>        <!--Κουμπί που καλεί τη μέθοδο Checkout για να οδηγήσει τον χρήστη στη σελίδα ολοκλήρωσης παραγγελίας/πληρωμής.-->
+        </div>
+    }
+</div>
+
+@code {
+    // Παρακάτω η μέθοδος δέχεται ένα CartItem και καλεί το MyCart.Remove(item.Product) για να αφαιρέσει το προϊόν από το καλάθι. Η μέθοδος είναι void επειδή η αφαίρεση γίνεται τοπικά στο service και δεν απαιτεί ασύγχρονη εργασία.
+    private void RemoveFromCart(CartItem item)
+    {
+        MyCart.Remove(item.Product);    // Εδώ καλείται η υλοποίηση του Remove στο CartService. Η υλοποίηση του service είναι υπεύθυνη για το πώς διαχειρίζεται την κατάσταση (π.χ. αφαίρεση από λίστα, ενημέρωση Total, αντίστοιχη ειδοποίηση UI).
+    }
+
+    private void GoToProducts()     // Η μέθοδος αυτή καλείται από κουμπιά για να πλοηγήσει τον χρήστη στη σελίδα των προϊόντων.
+    {
+        Navigation.NavigateTo("/client/products");      // Εδώ καλείται το NavigationManager για πλοήγηση του χρήστη στο URI /client/products.
+    }
+
+    // Στην παρακάτω μέθοδο καλείται η Navigation.NavigateTo("/client/checkout"), για να οδηγήσει τον χρήστη στη σελίδα checkout.
+    private void Checkout()     // Η μέθοδος αυτή χειρίζεται την ενέργεια checkout και την ολοκλήρωση της αγοράς.
+    {
+        
+        Navigation.NavigateTo("/client/checkout");      // Εδώ ο χρήστης δρομολογείται στην σελίδα των πληρωμών και της ολοκλήρωσης παραγγελίας.
+    }
+}

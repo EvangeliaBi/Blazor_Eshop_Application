@@ -1,0 +1,74 @@
+@page "/client/login"
+@using MyBlazorApp.Services
+@inject AuthService AuthService         // Εισαγωγή του AuthService για αυθεντικοποίηση του χρήστη.
+@inject NavigationManager Navigation
+@rendermode InteractiveServer
+
+<PageTitle>Client Login</PageTitle>
+
+<div class="container mt-5">
+    <div class="row justify-content-center">
+        <div class="col-md-4">
+            <div class="card">
+                <div class="card-body">
+                    <h3 class="card-title text-center mb-4">Client Login</h3>
+                    @if (!string.IsNullOrEmpty(errorMessage))       // Ελέγχει εάν υπάρχει μήνυμα σφάλματος προς εμφάνιση.
+                    {
+                        <div class="alert alert-danger">@errorMessage</div>     // Μήνυμα λάθους λόγω αποτυχημένου login.
+                    }
+                    <EditForm Model="loginModel" OnValidSubmit="HandleLogin">       <!--Σύνδεση με το loginModel, όταν γίνει submit και τα δεδομένα είναι έγκυρα, καλείται η μέθοδος HandleLogin.-->
+                        <div class="mb-3">
+                            <label class="form-label">Username</label>
+                            <InputText @bind-Value="loginModel.Username" class="form-control" />
+                        </div>
+                        <div class="mb-3">
+                            <label class="form-label">Password</label>
+                            <InputText type="password" @bind-Value="loginModel.Password" class="form-control" />
+                        </div>
+                        <button type="submit" class="btn btn-primary w-100">Login</button>
+                    </EditForm>
+                </div>
+            </div>
+        </div>
+    </div>
+</div>
+
+
+@code{
+    private LoginModel loginModel = new LoginModel();       // Αντικείμενο που κρατά τα δεδομένα της φόρμας login.
+    private string errorMessage = string.Empty;         // Μεταβλητή που αποθηκεύει μηνύματα σφάλματος για εμφάνιση στο UI.
+
+    private void HandleLogin()      // Η μέθοδος αυτή εκτελείται όταν ο χρήστης είναι στο στάδιο συμπλήρωσης της φόρμας για το login.
+    {
+        if (string.IsNullOrWhiteSpace(loginModel.Username) || string.IsNullOrWhiteSpace(loginModel.Password))      // Έλεγχος αν τα πεδία Username ή Password είναι κενά.
+        {
+            errorMessage = "Please enter your Username and Password.";      // Μήνυμα σφάλματος εάν δεν έχουν συμπληρωθεί όλα τα πεδία.
+            return;         // Τερματισμός μεθόδου με το return.
+        }
+
+        // Παρακάτω πραγματοποιείται η δημιουργία URL προς το backend endpoint αυθεντικοποίησης, μέσω κωδικοποίησης των δεδομένων για αποφυγή προβλημάτων ασφαλείας.
+        var url = $"/client/auth/login?username={Uri.EscapeDataString(loginModel.Username)}&password={Uri.EscapeDataString(loginModel.Password)}";
+        Navigation.NavigateTo(url, forceLoad: true);       // Πλοήγηση του browser στο authentication endpoint, ώστε να δημιουργηθεί authentication cookie.
+    }
+
+    protected override void OnInitialized()     // Εκτέλεση αυτής της μεθόδου κατά την αρχικοποίηση του component.
+    {
+        var uri = Navigation.ToAbsoluteUri(Navigation.Uri);
+        if (Microsoft.AspNetCore.WebUtilities.QueryHelpers.ParseQuery(uri.Query)
+            .TryGetValue("error", out var error))
+        {
+            if (error == "invalid")     // Έλεγχος στην περίπτωση που το login απέτυχε και επιστροφή σφάλματος από το backend.
+            {
+                errorMessage = "Incorrect Username or Password. Please try again.";
+            }
+        }
+    }
+
+    // Δημιουργία αυτής της κλάσης (LoginModel), η οποία περιέχει τα δεδομένα για την φόρμα login.
+    public class LoginModel
+    {
+        // Παρακάτω οι ιδιότητες αυτές συνδέονται με τα input πεδία της φόρμας μέσω data binding.
+        public string Username { get; set; } = string.Empty;
+        public string Password { get; set; } = string.Empty;
+    }
+}

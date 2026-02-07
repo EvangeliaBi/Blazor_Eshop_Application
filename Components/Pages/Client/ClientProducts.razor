@@ -1,0 +1,143 @@
+@page "/client/products"
+@* Παρακάτω με το [Authorize(Policy = "ClientOnly")] περιορίζεται η πρόσβαση στη σελίδα μόνο σε χρήστες που πληρούν το policy ClientOnly. Αν ο χρήστης δεν είναι authenticated ή δεν έχει το σωστό ρόλο (του client στην προκειμένη περίπτωση), απορρίπτεται η πρόσβαση.*@
+@attribute [Authorize(Policy = "ClientOnly")]  
+@layout ClientLayout    
+@using Microsoft.AspNetCore.Authorization
+@using MyBlazorApp.Components.Layout
+@using MyBlazorApp.Data
+@using MyBlazorApp.Models
+@using Microsoft.EntityFrameworkCore
+@inject AppDbContext DbContext
+@inject NavigationManager Navigation
+@rendermode InteractiveServer
+
+
+<PageTitle>Client Products</PageTitle>
+<div class="mb-3 d-flex gap-2">
+    <input type="text" class="form-control" placeholder="Search by name..."
+           @bind="searchText" />
+
+    <select class="form-select" @bind="selectedCategory">       <!--Το bind συνδέει την επιλεγμένη τιμή με την selectedCategory στο component.-->
+        <option value="">All Categories</option>
+        @foreach (var cat in categories)
+        {
+            <option value="@cat">@cat</option>      <!--Δημιουργεί δυναμικά option για κάθε κατηγορία που φορτώθηκε από τη βάση.-->
+        }
+    </select>
+
+    <select class="form-select" @bind="sortOption">         <!--Dropdown για επιλογή κριτηρίου ταξινόμησης. Το bind ενημερώνει την sortOption όταν ο χρήστης αλλάζει επιλογή.-->
+        <!--Παρακάτω πραγματοποιείται καθορισμός των διαθέσιμων επιλογών ταξινόμησης που αργότερα χρησιμοποιούνται στο switch για να τροποποιήσουν το query.-->
+        <option value="PriceAsc">Price: Low → High</option>
+        <option value="PriceDesc">Price: High → Low</option>
+        <option value="NameAsc">Name: A → Z</option>
+        <option value="NameDesc">Name: Z → A</option>
+    </select>
+
+    <button class="btn btn-primary" @onclick="ApplyFilters">Apply</button>      <!--Κουμπί που καλεί τη μέθοδο ApplyFilters όταν πατηθεί. Η μέθοδος εφαρμόζει τα τρέχοντα φίλτρα και ανανεώνει τη λίστα προϊόντων.-->
+</div>
+
+<div class="container mt-4">
+    <h2 class="mb-4">Available Products</h2>
+
+<!-- Κουμπί μετάβασης στη Wishlist -->
+    <button class="btn btn-outline-primary mb-3" @onclick="GoToWishlist">       <!--Κουμπί που καλεί τη μέθοδο GoToWishlist όταν ο χρήστης το πατήσει και μεταφέρεται στα WishlistItems που έχει στην δική του λίστα ο κάθε πελάτης. Η πλοήγηση γίνεται client‑side χωρίς reload.-->
+        Go to Wishlist
+    </button>
+
+    <div class="row row-cols-1 row-cols-md-3 g-4">
+        @foreach (var product in products)           // Εδώ διατρέχει κάθε προιόν της λίστας products και για κάθε αντικείμενο Product, δημιουργείται μία κάρτα προβολής.
+        {
+            <div class="col">
+                <div class="card h-100 shadow-sm">
+                    @if (!string.IsNullOrEmpty(product.ImageFile))      // Ελέγχει αν το προιόν έχει εικόνα.
+                    {
+                        <div style="
+                             height:200px;
+                             background-image:url('@product.ImageFile');
+                             background-size: contain;
+                             background-repeat: no-repeat;
+                             background-position: center;">
+                        </div>
+                    }
+                    <div class="card-body d-flex flex-column">
+                        <h5 class="card-title">@product.ProductName</h5>
+                        <p class="card-text fw-bold">$@product.ProductPrice.ToString("F2")</p>
+                        <p class="card-text text-muted">Stock: @product.ProductStock</p>
+                        <button class="btn btn-primary mt-auto" @onclick="() => ViewProduct(product.Id)">       <!--Κουμπί που καλεί τη μέθοδο ViewProduct με το product.Id. Η έκφραση () => ViewProduct(product.Id) είναι lambda ώστε να περάσει το id κατά το click. Κουμπί προβολής λεπτομερειών προϊόντος, για ένα συγκεκριμένο (Id) του προιόντος..-->
+                            View Details
+                        </button>
+                    </div>
+                </div>
+            </div>
+        }
+    </div>
+</div>
+
+@code {
+    private List<Product> products = new();         // Δηλώνει και αρχικοποιεί τη λίστα products ως κενή List<Product>. Αυτό αποτρέπει null references και επιτρέπει στο markup να κάνει foreach χωρίς έλεγχο null.
+    private List<string> categories = new();        // Λίστα κατηγοριών που γεμίζει από τη βάση και χρησιμοποιείται στο dropdown.
+
+    private string searchText = string.Empty;       // Κείμενο αναζήτησης που αρχικοποιείται κενό ώστε το binding να λειτουργεί σωστά.
+    private string selectedCategory = string.Empty; // Επιλεγμένη κατηγορία.
+    private string sortOption = "PriceAsc";         // Επιλεγμένο sort (PriceAsc, PriceDesc, NameAsc, NameDesc). Προεπιλεγμένη επιλογή ταξινόμησης, όπου χρησιμοποιείται στο switch για να καθορίσει την OrderBy συμπεριφορά.
+
+    // Εκτελείται 1 φορά κατά την αρχικοποίηση του component
+    protected override async Task OnInitializedAsync()
+    {
+        // Φόρτωση διαθέσιμων κατηγοριών από τη βάση. Παρακάτω εκτελείται το EF Core query που επιλέγει όλες τις τιμές Category από τον πίνακα Products, αφαιρεί διπλότυπα με Distinct() και επιστρέφει λίστα. Το αποτέλεσμα αποθηκεύεται στο categories για το dropdown.
+        categories = await DbContext.Products
+                                    .Select(p => p.Category)
+                                    .Distinct()
+                                    .ToListAsync();
+
+        // Καλεί την ασύγχρονη μέθοδο LoadProducts για να γεμίσει τη λίστα products με τα αρχικά δεδομένα.
+        await LoadProducts();
+    }
+
+    // Φόρτωση προϊόντων με φίλτρα και ταξινόμηση
+    private async Task LoadProducts()       // Ασύγχρονη μέθοδος που κατασκευάζει και εκτελεί το query για τα προϊόντα.
+    {
+        var query = DbContext.Products.AsQueryable();     // Ξεκινά με ένα IQueryable<Product> ώστε να είναι εφικτή η προσθήκη δυναμικών Where και OrderBy πριν την εκτέλεση.
+
+        // Φίλτρο αναζήτησης ανά όνομα
+        if (!string.IsNullOrWhiteSpace(searchText))     // Αν υπάρχει κείμενο αναζήτησης, προσθέτει WHERE που φιλτράρει προϊόντα των οποίων το ProductName περιέχει το searchText. Η χρήση Contains μεταφράζεται σε SQL LIKE από τον EF Core.
+        {
+            query = query.Where(p => p.ProductName.Contains(searchText));
+        }
+
+        // Φίλτρο ανά κατηγορία
+        if (!string.IsNullOrWhiteSpace(selectedCategory))       // Αν έχει επιλεγεί κατηγορία, προσθέτει WHERE που περιορίζει τα προϊόντα στην επιλεγμένη κατηγορία.
+        {
+            query = query.Where(p => p.Category == selectedCategory);
+        }
+
+        // Παρακάτω πραγματοποιείται ταξινόμηση, όπου επιλέγεται η κατάλληλη OrderBy ή OrderByDescending βάση της τιμής sortOption. Το switch επιστρέφει το τροποποιημένο IQueryable.
+        query = sortOption switch
+        {
+            "PriceAsc" => query.OrderBy(p => p.ProductPrice),
+            "PriceDesc" => query.OrderByDescending(p => p.ProductPrice),
+            "NameAsc" => query.OrderBy(p => p.ProductName),
+            "NameDesc" => query.OrderByDescending(p => p.ProductName),
+            _ => query
+        };
+
+        products = await query.ToListAsync();       // Εκτέλεση query και αποθήκευση αποτελεσμάτων. Στην ουσία σε αυτό το σημείο εκτελείται το τελικό SQL query ασύγχρονα και αποθηκεύει τα αποτελέσματα στη λίστα products. Η εκτέλεση γίνεται μόνο εδώ, αφού όλα τα φίλτρα και η ταξινόμηση έχουν προστεθεί.
+    }
+
+    // Η μέθοδος ApplyFilters() εκτελείται όταν ο χρήστης πατάει το κουμπί Apply και τα προϊόντα φορτώνονται ξανά με τα τρέχοντα φίλτρα καλώντας την LoadProducts.
+    private async Task ApplyFilters()
+    {
+        await LoadProducts();
+    }
+
+    private void ViewProduct(int id)      // Πλοήγηση στη σελίδα λεπτομερειών προϊόντος
+    {
+        Navigation.NavigateTo($"/client/product/{id}");     // Το NavigateTo εκτελεί client‑side routing χωρίς πλήρη reload.
+    }
+
+    private void GoToWishlist()     //  // Πλοήγηση στη wishlist του χρήστη.
+    {
+        Navigation.NavigateTo("/client/wishlist");
+    }
+}
+

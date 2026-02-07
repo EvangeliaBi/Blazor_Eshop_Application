@@ -1,0 +1,48 @@
+@inherits LayoutComponentBase
+@using MyBlazorApp.Services
+@inject CartService MyCart
+@inject NavigationManager Navigation
+
+<div class="page d-flex">
+
+    <!-- Sidebar -->
+    <div class="sidebar bg-white border-end shadow-sm p-4" style="min-width:260px;">
+    <NavMenu />
+    </div>
+
+    <!-- Main content -->
+    <div class="flex-fill d-flex flex-column">
+
+        <!-- Top navbar -->
+        <div class="top-row px-4 py-2 d-flex justify-content-between align-items-center border-bottom bg-white shadow-sm">
+            <a href="/client/products" class="text-decoration-none fw-bold fs-4">
+                Tech E-Shop
+            </a>
+
+            <div class="d-flex align-items-center">
+                <!-- CART: ΜΟΝΟ ΓΙΑ CLIENT -->
+                <NavLink class="btn btn-outline-primary position-relative me-3"
+                         href="/client/cart">
+                    <i class="bi bi-cart"></i> Cart
+
+                    @if (MyCart.Items.Count > 0)
+                    {
+                        <span class="badge bg-danger position-absolute top-0 start-100 translate-middle">
+                            @MyCart.Items.Count
+                        </span>
+                    }
+                </NavLink>
+
+                <NavLink class="btn btn-outline-secondary" href="/">    <!--Μόλις πατήσει ο χρήστης το Logout ανακατευθύνεται στην αρχική σελίδα του e-shop.-->
+                    <i class="bi bi-box-arrow-right"></i> Logout
+                </NavLink>
+            </div>
+        </div>
+
+        <main class="flex-fill p-4">
+            @Body
+        </main>
+    </div>
+</div>
+
+

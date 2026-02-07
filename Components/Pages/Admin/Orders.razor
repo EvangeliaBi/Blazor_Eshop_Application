@@ -1,0 +1,85 @@
+@page "/admin/orders"
+@attribute [Authorize(Policy = "AdminOnly")]
+@using Microsoft.AspNetCore.Authorization
+@using MyBlazorApp.Data
+@using MyBlazorApp.Models
+@using Microsoft.EntityFrameworkCore
+@inject AppDbContext DbContext
+@inject NavigationManager Navigation
+@rendermode InteractiveServer
+@using MyBlazorApp.Services
+
+
+
+<h2>All Orders</h2>
+
+<div class="mb-3">
+    <button class="btn btn-secondary" @onclick="GoToProducts">      <!--Πατώντας το κουμπί αυτό ενεργοποιείται η μέθοδος (GoToProducts) κι επιστρέφει τον admin πίσω στην διαχείριση των προιόντων.-->
+        <i class="bi bi-arrow-left"></i> Back to Manage Products
+    </button>
+</div>
+
+@if (orders == null || !orders.Any())     // Εδώ ελέγχεται εάν η λίστα(orders) είναι null(που σημαίνει ότι δεν έχουν φορτωθεί ακόμα οι παραγγελίες) ή ελέγχεται εάν είναι άδεια, εμφανίζοντας αντίστοιχο μήνυμα ότι δεν υπάρχουν παραγγελίες καθώς με αυτόν τον τρόπο αποτρέπεται το null reference exception.
+{
+    <p>No orders yet.</p>
+}
+else        // Το μπλοκ κώδικα του else θα εκτελεστεί στην περίπτωση που υπάρχουν παραγγελίες.
+{
+    @foreach (var order in orders)     // Μέσω του foreach διατρέχεται κάθε στοιχείο της λίστας, όπου στην περίπτωση ύπαρξης παραγγελιών, δημιουργείται ένα card για κάθε ένα order.
+    {
+        <div class="card mb-3">
+            <div class="card-header">
+                <strong>Customer:</strong> @order.CustomerUsername      <!--Εμφανίζει το username του πελάτη που έκανε την παραγγελία.-->
+                <span class="float-end"><strong>Date:</strong> @order.OrderDate.ToLocalTime().ToString("dd/MM/yyyy HH:mm")</span>     <!--Εδώ εμφανίζεται η ημερομηνία της παραγγελίας, καθώς μέσω της μεθόδου ToString ("dd/MM/yyyy HH:mm") μορφοποιείται η ημερομηνία σε ημέρα/μήνα/έτος και ώρα με λεπτά.-->
+            </div>
+            <div class="card-body">
+                <table class="table table-sm">
+                    <thead>
+                        <tr>
+                            <th>Product</th>
+                            <th>Price</th>
+                            <th>Quantity</th>
+                            <th>Subtotal</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        @foreach(var item in order.Items)       // Σε αυτό το σημείο διατρέχεται κάθε item που ανήκει στην παραγγελία.
+                        {
+                            <tr>
+                                <td>@item.ProductName</td>      <!--Εδώ εμφανίζεται το όνομα του προϊόντος. Αυτό είναι snapshot που αποθηκεύτηκε στο OrderItem τη στιγμή της παραγγελίας, ώστε το ιστορικό να παραμένει ακριβές.-->
+                                <td>$@item.Price.ToString("F2")</td>       <!--Εδώ εμφανίζεται η τιμή μονάδας με ακρίβεια 2 δεκαδικών.-->
+                                <td>@item.Quantity</td>         <!--Εμφάνιση ποσότητας αγοράς.-->
+                                <td>$@((item.Price * item.Quantity).ToString("F2"))</td>     <!--Υπολογισμός κι εμφάνιση του subtotal.-->
+                            </tr>
+                        }
+                    </tbody>
+                </table>
+                <div class="text-end">
+                    <strong>Total:</strong> $@order.TotalAmount.ToString("F2")     <!--Εδώ εμφανίζεται το συνολικό ποσό, το οποίο έχει ήδη υπολογιστεί από την τιμή του προιόντος πολλαπλασιαζόμενη με την ποσότητα που έχει παραγγείλει ένας πελάτης για το συγκεκριμένο προιόν.-->
+                    <strong>Status:</strong> @order.Status.ToString()
+                </div>
+            </div>
+        </div>
+    }
+}
+
+@code {
+    private List<Order> orders = new();         // Εδώ δηλώνεται και αρχικοποιείται μία ιδιότητα, που πρόκειται για (μία κενή λίστα), η οποία θα κρατάει όλες τις παραγγελίες.
+
+    // Η παρακάτω μέθοδος είναι async ώστε να μπορεί να κάνει ασύγχρονα DB calls χωρίς να μπλοκάρεται το UI thread, καθώς εκτελείται 1 φορά όταν φορτώνεται το component.
+    protected override async Task OnInitializedAsync()
+    {
+        // Παρακάτω φορτώνονται οι παραγγελίες μαζί με τα προϊόντα.
+        orders = await DbContext.Orders     // Σε αυτό το σημείο ξεκινά το query για τις παραγγελίες.
+            .Include(o => o.Items)      // Εδώ φορτώνονται τα orders και τα order items.
+            .OrderByDescending(o => o.OrderDate)    // Εδώ ταξινομεί τις παραγγελίες κατά ημερομηνία φθίνουσα, ώστε οι πιο πρόσφατες παραγγελίες να εμφανίζονται πρώτες.
+            .ToListAsync();     // Σε αυτό το σημείο εκτελείται το query ασύγχρονα και επιστρέφει τα αποτελέσματα ως List<Order>. Το await περιμένει την ολοκλήρωση πριν αναθέσει το αποτέλεσμα στο orders.
+    }
+
+    private void GoToProducts()
+    {
+        Navigation.NavigateTo("/admin/products");       // Επιστρέφει τον admin στην σελίδα με τα προιόντα.
+    }
+
+}
+

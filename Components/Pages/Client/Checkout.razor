@@ -1,0 +1,106 @@
+@page "/client/checkout"
+@attribute [Authorize(Policy = "ClientOnly")]
+@layout ClientLayout
+@using MyBlazorApp.Components.Layout
+@using MyBlazorApp.Services
+@using MyBlazorApp.Models
+@using MyBlazorApp.Data
+@using Microsoft.EntityFrameworkCore
+@using Microsoft.AspNetCore.Authorization
+@using Microsoft.AspNetCore.Components.Authorization
+
+@*Παρακάτω μέσω του dependency injection, γίνεται inject το CartServive εκθέτωντας ως property το MyCart. Στην ουσία παίρνει το CartServive από το DI Container και το εκθέτει ως property (MyCart).*@
+@inject CartService MyCart   
+@*Μέσω του inject AppDbContext DbContext, πραγματοποιείται έλεγχος των παραγγελιών κι ενημέρωση του αποθέματος, παρέχοντας πρόσβαση στο DbContext.Orders και στο DbContext.Products.*@       
+@inject AppDbContext DbContext
+@inject NavigationManager Navigation
+@*Μέσω του inject AuthenticationStateProvider AuthProvider, παρέχεται πρόσβαση στην τρέχουσα κατάσταση authentication ώστε να βρεθεί το username ή άλλα claims του χρήστη.*@
+@inject AuthenticationStateProvider AuthProvider
+@rendermode InteractiveServer
+
+
+
+<h2>Checkout</h2>
+
+@if (!MyCart.Items.Any())       // Εδώ ελέγχεται εάν το καλάθι είναι κενό. Το MyCart.Items.Any() είναι LINQ extension που επιστρέφει true αν υπάρχει τουλάχιστον ένα στοιχείο. Όταν το καλάθι είναι άδειο εμφανίζεται μήνυμα, διαφορετικά εμφανίζεται σύνοψη παραγγελίας και επιλογές πληρωμής.
+{
+    <p>Your cart is empty.</p>
+}
+else        // Το μπλοκ κώδικα του else αυτό θα εκτελεστεί στην περίπτωση που το καλάθι έχει μέσα προιόντα.
+{
+    <h4>Order Summary</h4>
+
+    <ul>
+        @foreach (var item in MyCart.Items)         // Με μία foreach διατρέχεται το κάθε item του καλαθιού εμφανίζοντας το όνομα του προιόντος και την ποσότητα.
+        {
+            <li>@item.Product.ProductName x @item.Quantity</li>
+        }
+    </ul>
+
+    <p><strong>Total:</strong> @MyCart.Total.ToString("F2") $</p>       // Εδώ εμφανίζεται το συνολικό ποσό.
+
+    <select @bind="paymentMethod" class="form-select mb-3">     <!--Με μία dropdown λίστα δεσμεύεται η επιλεγμένη τιμή στο πεδίο paymentMethod μέσω two‑way binding, καθώς η επιλογή αποθηκεύεται στο component state.-->
+        <option>Credit Card</option>
+        <option>Cash on Delivery</option>
+        <option>PayPal</option>
+    </select>
+    <div class="d-flex gap-2">
+    <button class="btn btn-success" @onclick="ConfirmOrder">       <!--Κουμπί που καλεί την ασύγχρονη μέθοδο ConfirmOrder να εκτελεστεί, όταν ο χρήστης το πατήσει.-->
+        Confirm Order
+    </button>
+    <button class="btn btn-secondary" @onclick="GoBackToProduct">       <!--Κουμπί που καλεί την ασύγχρονη μέθοδο GoBackToProduct, κι εκτελείται όταν ο χρήστης πατήσει το κουμπί και επιστρέψει στην σελίδα των λεπτομερειών για ένα συγκεκριμένο προιόν.-->
+        <i class="bi bi-arrow-left"></i> Back to Product
+    </button>
+    </div>
+}
+
+
+@code {
+    private string paymentMethod = "Credit Card";       // Εδώ χρησιμοποιείται μία προεπιλεγμένη μέθοδος πληρωμής (με default τιμη - Credit Card), που στην ουσία χρησιμοποιείται στην περίπτωση που ο χρήστης δεν επιλέξει διαφορετικό τρόπο πληρωμής.
+
+    private async Task ConfirmOrder()
+    {
+        // Παρακάτω λαμβάνεται η τρέχουσα κατάσταση του authentication ασύγχρονα 
+        var authState = await AuthProvider.GetAuthenticationStateAsync();
+        var username = authState.User.Identity?.Name ?? "Unknown";      // Σε αυτό το σημείο εξάγεται το όνομα του χρήστη από τα claims, καθώς εάν δεν υπάρχει χρησιμοποιείται το "Unknown".
+
+        // Παρακάτω δημιουργείται νέο Order(object στην μνήμη) με CustomerUsername, TotalAmount και PaymentMethod.
+        var order = new Order
+        {
+            CustomerUsername = username,
+            TotalAmount = MyCart.Total,
+            PaymentMethod = paymentMethod,
+            Status = OrderStatus.Completed          // Σε αυτό το σημείο την στιγμή της παραγγελίας ορίζεται και το status του enum, που είναι completed και σημαίνει ότι η πληρωμή ολοκληρώθηκε.
+        };
+
+        foreach (var item in MyCart.Items)     // Σε αυτό το σημείο μέσω της foreach για κάθε στοιχείο του (item) του καλαθιού, προστίθεται ένα OrderItem στο order.Items που αποθηκεύει το ProductId, ProductName, Price και Quantity. Αυτό διασφαλίζει ότι το ιστορικό παραγγελίας δεν θα αλλάξει αν αλλάξει το προϊόν αργότερα, δηλαδή αν αλλάξει η τιμή στο μέλλον τότε η παραγγελία δεν επηρρεάζεται.
+        {
+            order.Items.Add(new OrderItem
+            {
+                ProductId = item.Product.Id,
+                ProductName = item.Product.ProductName,
+                Price = item.Product.ProductPrice,
+                Quantity = item.Quantity
+            });
+
+            item.Product.ProductStock -= item.Quantity;       // Εδώ μειώνεται το ProductStock του Product κατά την ποσότητα (item.Product.ProductStock -= item.Quantity). Αυτό ενημερώνει το in‑memory αντικείμενο Product ώστε όταν γίνει SaveChangesAsync να ενημερωθεί και το απόθεμα στη βάση.
+        }
+
+        DbContext.Orders.Add(order);        // Σε αυτό το σημείο γίνεται προσθήκη του order στο DbContext και αποθηκεύει όλες τις αλλαγές στη βάση. Αυτό περιλαμβάνει: insert της παραγγελίας, insert των OrderItem γραμμών και update των Product αποθεμάτων.
+        await DbContext.SaveChangesAsync();
+
+        MyCart.Clear();     // Εδώ μέσω εκτέλεσης της μεθόδου (Clear()), αδειάζεται το καλάθι(που περιέχει όλα τα στοιχεία που έχουν αποθηκευθεί στην μνήμη) μετά την επιτυχή αποθήκευση, αποτρέποντας την ύπαρξη διπλών παραγγελιών από το ίδιο καλάθι.
+        Navigation.NavigateTo("/client/order-success");     // Εδώ γίνεται πλοήγηση του customer, στην σελίδα επιβεβαίωσης παραγγελίας.
+    }
+
+    private void GoBackToProduct()      // Ενέργεια πλοήγησης που επιστρέφει τον χρήστη στη σελίδα λεπτομερειών ενός προϊόντος από το καλάθι.
+    {
+        if (MyCart.Items.Any())         // Ελέγχει αν η συλλογή Items μέσα στην υπηρεσία/αντικείμενο MyCart περιέχει τουλάχιστον ένα στοιχείο. Η μέθοδος Any() είναι extension method του LINQ που επιστρέφει true αν υπάρχει κάποιο στοιχείο. Στην ουσία αποφεύγει προσπάθεια πρόσβασης σε κενή λίστα (που θα προκαλούσε εξαίρεση αν επιχειρούσαμε First() σε άδεια συλλογή). Είναι προστασία κατά των edge cases όπου το καλάθι είναι άδειο.
+        {
+            // Παίρνουμε το πρώτο προϊόν από το καλάθι.
+            var productId = MyCart.Items.First().Product.Id;        // Παίρνει το πρώτο αντικείμενο της συλλογής Items. Η First() επιστρέφει το πρώτο στοιχείο και θα ρίξει εξαίρεση αν η συλλογή είναι άδεια — γι’ αυτό προηγείται το Any() ως έλεγχος. Το .Product: από το αντικείμενο του καλαθιού (πιθανώς ένα CartItem ή παρόμοιο), προσπελαύνει το navigation property Product που περιέχει τα δεδομένα του προϊόντος. Το Id: παίρνει το πρωτεύον κλειδί/ταυτότητα του προϊόντος. Αποθηκεύει την τιμή σε τοπική μεταβλητή productId. Στην ουσία εξάγει το Id του πρώτου προϊόντος ώστε να χρησιμοποιηθεί για πλοήγηση στη σελίδα λεπτομερειών.
+            Navigation.NavigateTo($"/client/product/{productId}");      // Καλεί τον NavigationManager για να εκτελέσει client‑side πλοήγηση στη διεύθυνση /client/product/{productId}. Ο router θα φορτώσει το component που αντιστοιχεί στο route /client/product/{id} χωρίς πλήρη reload της σελίδας. 
+        }
+    }
+
+}
