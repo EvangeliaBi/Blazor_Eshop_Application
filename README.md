@@ -1,3 +1,7 @@
+## Demo
+
+![Παρουσίαση Εφαρμογής](demo.gif)
+
 # Blazor E-Shop Application
 
 This project is a mini e-commerce web application developed as part of the Object Oriented Programming module.
